@@ -30,6 +30,8 @@ CTRL+space ──▶ 🎤 speak ──▶ CTRL+space ──▶ "What time is it?
   changes are Apache-2.0 with every modification documented (`server/NOTICE`).
   No paid tiers, nothing phoning home.
 
+> 🤖 LLM agent? Read [`llms.txt`](llms.txt) instead — the whole project as a dense machine-readable reference.
+
 ## Contents
 
 [How it works](#how-it-works) · [Requirements](#requirements) ·
