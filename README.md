@@ -34,12 +34,47 @@ CTRL+space ──▶ 🎤 speak ──▶ CTRL+space ──▶ "What time is it?
 
 ## Contents
 
-[How it works](#how-it-works) · [Requirements](#requirements) ·
+[Why R2T2?](#why-r2t2) · [How it works](#how-it-works) · [Requirements](#requirements) ·
 [Install](#install) · [Configure](#configure) ·
 [Window manager support](#window-manager-support) · [Use](#use) ·
 [Files](#files) · [Troubleshooting](#operations--troubleshooting) ·
 [Updating](#updating) · [Server patches](#server-patches-why-and-what-to-redo-after-upstream-updates) ·
 [Acknowledgments](#acknowledgments) · [License](#license)
+
+## Why R2T2?
+
+Dictation lives or dies on recognition quality, and R2T2 is the strongest ASR engine we
+found that runs entirely on a consumer GPU. From upstream's README: *"Experimental
+results show that R2T2 achieves state-of-the-art (SOTA) performance in both latency and
+recognition quality among a range of open-source models, while remaining competitive
+with leading closed-source systems."*
+
+The evidence behind that claim, from their benchmarks at 160 ms chunks:
+
+- **Near-offline accuracy.** On LibriSpeech-clean, R2T2 scores **2.13 WER** vs **1.67**
+  for the same model decoded fully offline — and naively streaming its Qwen3-ASR base
+  collapses to **22.30**. That gap is what R2T2's Longest-Stable-Prefix training closes.
+  It beats same-latency open models across the suite (WhisperRT 4.70, Nemotron 3.71,
+  Voxtral 2.49 on LS-clean; TED-LIUM 3.34, SPGI 3.00, Earnings22 9.36).
+- **Small and fast.** ~4 GB of weights on a vLLM backend — an utterance decodes in well
+  under a second on a mid-range NVIDIA card, which is why your text lands ~1s after you
+  stop talking.
+- **Ships the server we need.** A ready-made WebSocket server (Apache-2.0) that this
+  project reuses and lightly patches — a small integration instead of an inference
+  rewrite.
+- **English + Chinese**, including mixed-language sentences; other languages (French,
+  German, Spanish, Japanese, …) work but are not the optimization target.
+  Context/hotword prompts are natively supported.
+
+One architectural note: whisperless does **not** rely on R2T2's streaming output — the
+text you receive is a full offline decode of the utterance, which is also where terminal
+punctuation comes from. Streaming lets the server process audio as you talk; the
+deliverable is offline-grade.
+
+Caveats worth knowing: the weights are under NetEase's license, not an OSI one
+([License](#license)); benchmark numbers above are upstream-reported — in our own
+English-heavy use it has held up ([details of our
+patches](#server-patches-why-and-what-to-redo-after-upstream-updates)).
 
 ## How it works
 
