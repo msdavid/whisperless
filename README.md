@@ -106,9 +106,15 @@ mode never emits it).
 ## Install
 
 ```bash
-git clone <this-repo-or-copy> whisperless && cd whisperless
+git clone https://github.com/msdavid/whisperless && cd whisperless
 ./install.sh
 ```
+
+> 🤖 **Alternative: ask your coding agent.** This repo is agent-friendly — [`llms.txt`](llms.txt)
+> is a dense, machine-readable reference to everything here (protocol, patches, failure
+> modes, config semantics). Point your coding agent at the repo and ask it to read
+> `llms.txt` and install; it can also tailor the setup (custom hotkey, different install
+> destination, distro quirks) and debug any step that fails.
 
 That's it — safe on a fresh machine. The installer is **idempotent** (re-run anytime;
 it re-applies server files and the unit, but keeps your config, venv and weights) and
