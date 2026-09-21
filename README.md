@@ -67,9 +67,8 @@ The evidence behind that claim, from their benchmarks at 160 ms chunks:
   Context/hotword prompts are natively supported.
 
 One architectural note: whisperless does **not** rely on R2T2's streaming output — the
-text you receive is a full offline decode of the utterance, which is also where terminal
-punctuation comes from. Streaming lets the server process audio as you talk; the
-deliverable is offline-grade.
+text you receive is a full offline decode of the utterance. Streaming lets the server
+process audio as you talk; the deliverable is offline-grade.
 
 Caveats worth knowing: the weights are under NetEase's license, not an OSI one
 ([License](#license)); benchmark numbers above are upstream-reported. In our own
@@ -91,8 +90,7 @@ by systemd so dictation starts instantly) and a small **Python client** that cap
 the mic (`pw-record`, or `arecord` on non-PipeWire systems), streams it to the server
 over a WebSocket, and types the final transcript (`wtype` on Wayland, `ydotool`/
 `xdotool` fallbacks — see "Window manager support"). At stop, the server re-decodes
-the whole utterance offline — that's what gives you terminal punctuation (streaming
-mode never emits it).
+the whole utterance offline.
 
 ## Requirements
 
