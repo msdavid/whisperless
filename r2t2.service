@@ -1,0 +1,16 @@
+[Unit]
+Description=R2T2 streaming ASR websocket server (Confucius4-R2T2)
+After=graphical-session.target
+
+[Service]
+WorkingDirectory=@SERVER_DIR@
+ExecStart=@SERVER_DIR@/.venv/bin/python @SERVER_DIR@/ws_server.py -m @SERVER_DIR@/models/Confucius4-R2T2 -ip @BIND_IP@ -p @PORT@
+Environment=CUDA_VISIBLE_DEVICES=@GPU_INDEX@
+Environment=GPU_MEM_UTIL=@GPU_MEM_UTIL@
+Environment=MAX_MODEL_LEN=@MAX_MODEL_LEN@
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

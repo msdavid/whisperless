@@ -1,0 +1,365 @@
+#!/usr/bin/env python3
+"""voice-input — R2T2 push-to-talk dictation for Hyprland (toggle pattern).
+
+Usage:
+  voice-input            # toggle: start recording / stop and type text
+  voice-input --worker   # internal: the recording session itself
+  voice-input --test F   # stream F (16 kHz mono wav) instead of the mic
+
+Configuration: ~/.config/hypr-input/config.conf (shell-style KEY=value, see
+hypr-input.conf in the package for the documented defaults).
+
+Protocol (Confucius4-R2T2 ws_server, /asr_stream_api_v1):
+  JSON header -> raw int16 PCM binary frames -> "YOUDAO_ONETIME_ASR_STREAM_EOS".
+  Incremental replies carry new text; the final reset:true reply carries the
+  full offline transcript and REPLACES the streamed accumulation.
+"""
+import asyncio
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import uuid
+import wave
+from pathlib import Path
+
+EOS = "YOUDAO_ONETIME_ASR_STREAM_EOS"
+RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+PIDFILE = RUNTIME / "voice-input.pid"
+LOGFILE = Path.home() / ".cache" / "voice-input.log"
+SR = 16000
+CHUNK_MS = 160
+
+def _strip_comment(line):
+    """Remove a trailing # comment, respecting quoted values."""
+    out, q = [], None
+    for ch in line:
+        if q:
+            out.append(ch)
+            if ch == q:
+                q = None
+        elif ch in "\"'":
+            q = ch
+            out.append(ch)
+        elif ch == "#":
+            break
+        else:
+            out.append(ch)
+    return "".join(out)
+
+def load_config():
+    cfg = {}
+    p = Path.home() / ".config" / "hypr-input" / "config.conf"
+    try:
+        for line in p.read_text().splitlines():
+            line = _strip_comment(line).strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            cfg[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return cfg
+
+CFG = load_config()
+
+URI = f"ws://{CFG.get('BIND_IP', '127.0.0.1')}:{int(CFG.get('PORT', '8272'))}/asr_stream_api_v1"
+MAX_SECS = int(CFG.get("MAX_SECS", "120"))       # hard stop: auto-finalize after N seconds
+LANG_HINT = CFG.get("VOICE_LANG", "English")     # header language hint; "zhen" = auto zh+en
+SETTLE = float(CFG.get("SETTLE_DELAY", "0.15"))  # pause before typing (WM modifier race)
+GRACE = float(CFG.get("GRACE_TAIL", "0.25"))     # extra capture after stop (last word)
+TRAILING_SPACE = CFG.get("TRAILING_SPACE", "1") == "1"
+NOTIFY_ON = CFG.get("NOTIFY", "1") == "1"
+MIC_TARGET = CFG.get("MIC_TARGET", "")
+TYPER = CFG.get("TYPER", "auto")   # auto | wtype | ydotool | xdotool
+BORDER_ON = CFG.get("BORDER", "1") == "1"   # focused-window border turns red while recording (Hyprland)
+BORDER_ACTIVE = CFG.get("BORDER_COLOR", "rgba(ff3333ff)")
+BORDER_INACTIVE = CFG.get("BORDER_INACTIVE_COLOR", "rgba(ff333355)")
+
+def notify(title, body=""):
+    if not NOTIFY_ON:
+        return
+    subprocess.run(["notify-send", "-a", "voice-input", "-t", "2500", title, body],
+                   check=False)
+
+def _have(bin_name):
+    return shutil.which(bin_name) is not None
+
+def typer_chain():
+    """Text-injection backends in priority order (first that works wins)."""
+    if TYPER != "auto":
+        return [TYPER] if _have(TYPER) else []
+    wayland = bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("SWAYSOCK"))
+    cands = ["wtype", "ydotool"] if wayland else ["ydotool", "xdotool"]
+    return [c for c in cands if _have(c)]
+
+def log(msg):
+    try:
+        LOGFILE.parent.mkdir(exist_ok=True)
+        with open(LOGFILE, "a") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    except OSError:
+        pass
+
+def is_running():
+    try:
+        pid = int(PIDFILE.read_text().strip())
+        os.kill(pid, 0)  # raises if dead
+        return pid
+    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        PIDFILE.unlink(missing_ok=True)
+        return None
+
+def toggle():
+    pid = is_running()
+    if pid:
+        log(f"stopping pid={pid}")
+        os.kill(pid, signal.SIGTERM)
+        return
+    out = LOGFILE.open("ab")
+    proc = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "--worker"],
+        stdout=out, stderr=out, start_new_session=True)
+    log(f"started worker pid={proc.pid}")
+    notify("\U0001f3a4 recording", "press the key again to type")
+
+def header():
+    return json.dumps({
+        "channels": 1,
+        "sample_rate": SR,
+        "requestId": str(uuid.uuid4()),
+        "language": LANG_HINT,
+        "use_vad": False,
+        "secret_key": "test0102",
+        "mode": "slow",
+    })
+
+async def stream(source):
+    """source: ('mic',) or ('wav', path). Returns final transcript."""
+    import websockets
+    text_parts = []
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for s in (signal.SIGTERM, signal.SIGUSR1, signal.SIGINT):
+        loop.add_signal_handler(s, stop.set)
+
+    async with websockets.connect(URI, ping_interval=None, open_timeout=5,
+                                  max_size=None) as ws:
+        await ws.send(header())
+
+        if source[0] == "mic":
+            if _have("pw-record"):
+                mic_cmd = ["pw-record", "--rate", str(SR), "--channels", "1", "--format", "s16"]
+                if MIC_TARGET:
+                    mic_cmd += ["--target", MIC_TARGET]
+                mic_cmd += ["--raw", "-"]
+            elif _have("arecord"):
+                mic_cmd = ["arecord", "-q", "-f", "S16_LE", "-r", str(SR), "-c", "1", "-t", "raw", "-"]
+            else:
+                raise RuntimeError("no recorder found: install pipewire (pw-record) or alsa-utils (arecord)")
+            proc = await asyncio.create_subprocess_exec(
+                *mic_cmd, stdout=asyncio.subprocess.PIPE)
+            audio = proc.stdout
+        else:
+            w = wave.open(source[1], "rb")
+            assert w.getframerate() == SR and w.getnchannels() == 1 and w.getsampwidth() == 2, \
+                "test wav must be 16 kHz mono s16"
+            audio, w = None, w  # read synchronously below
+
+        async def recv_task():
+            nonlocal text_parts
+            try:
+                async for msg in ws:
+                    if isinstance(msg, bytes):
+                        continue
+                    d = json.loads(msg)
+                    if d.get("status") == "success":
+                        t = d.get("msg", {}).get("text") or ""
+                        if d.get("msg", {}).get("reset"):
+                            # patched server: the final reset message carries the FULL
+                            # offline transcript — it replaces the streamed accumulation
+                            if t:
+                                text_parts = [t]
+                        elif t:
+                            text_parts.append(t)
+                            log(f"+{t!r}")
+            except websockets.ConnectionClosed:
+                pass
+
+        async def send_task():
+            if source[0] == "wav":
+                block = int(CHUNK_MS / 1000 * SR) * 2
+                while not stop.is_set():
+                    data = w.readframes(block // 2)
+                    if not data:
+                        break
+                    await ws.send(data)
+                    await asyncio.sleep(CHUNK_MS / 1000)  # realtime-ish
+                w.close()
+                return
+            t0 = asyncio.get_event_loop().time()
+            deadline = t0 + MAX_SECS
+            while not stop.is_set() and asyncio.get_event_loop().time() < deadline:
+                try:
+                    data = await asyncio.wait_for(audio.read(6400), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+                if not data:
+                    break
+                await ws.send(data)
+            if source[0] == "mic":
+                # grace tail: keep capturing briefly so a word finishing after the
+                # keypress isn't clipped
+                await asyncio.sleep(GRACE)
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
+                # drain: forward everything pw-record already produced (reader
+                # buffer + pipe) before EOS
+                try:
+                    tail = await asyncio.wait_for(audio.read(), timeout=2)
+                    if tail:
+                        await ws.send(tail)
+                except asyncio.TimeoutError:
+                    pass
+
+        sender = asyncio.create_task(send_task())
+        receiver = asyncio.create_task(recv_task())
+        await asyncio.wait([sender], return_when=asyncio.FIRST_EXCEPTION)
+        try:
+            await ws.send(EOS)                      # server flushes + closes
+        except websockets.ConnectionClosed:
+            pass
+        try:
+            await asyncio.wait_for(receiver, timeout=15)
+        except asyncio.TimeoutError:
+            receiver.cancel()
+        if source[0] == "mic":
+            try:
+                proc.kill()
+                await proc.wait()
+            except ProcessLookupError:
+                pass
+    return "".join(text_parts)
+
+def type_text(text):
+    text = text.strip()
+    if not text:
+        notify("voice-input", "nothing heard")
+        return
+    time.sleep(SETTLE)  # settle: let stop-press modifiers fully release before injecting keys
+    typed = None
+    for typer in typer_chain():
+        insert = text + (" " if TRAILING_SPACE else "")
+        if typer == "wtype":
+            r = subprocess.run(["wtype", insert], check=False)
+        elif typer == "ydotool":
+            r = subprocess.run(["ydotool", "type", insert], check=False)
+        else:
+            r = subprocess.run(["xdotool", "type", "--clearmodifiers", insert], check=False)
+        if r.returncode == 0:
+            typed = typer
+            break
+        log(f"typer {typer} failed rc={r.returncode}")
+    if not typed:
+        log("error: no typer available (need wtype, ydotool or xdotool)")
+        notify("voice-input failed", "no text injector found")
+        return
+    log(f"typed via {typed}: {text!r}")
+    notify("\u2705 " + (text[:60] + ("\u2026" if len(text) > 60 else "")))
+
+def _argb_to_rgba(tok):
+    """getoption gradient token (AARRGGBB) -> rgba(RRGGBBAA) for hl.config."""
+    tok = tok.strip()
+    if re.fullmatch(r"[0-9a-fA-F]{8}", tok):
+        return f"rgba({tok[2:]}{tok[:2]})"
+    if re.fullmatch(r"[0-9a-fA-F]{6}", tok):
+        return f"rgba({tok})"
+    return None
+
+def _hl_get(option):
+    """Current value of a Hyprland option (gradient string / int) or None."""
+    if not _have("hyprctl"):
+        return None
+    r = subprocess.run(["hyprctl", "-j", "getoption", option],
+                       capture_output=True, text=True)
+    try:
+        d = json.loads(r.stdout)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    return d.get("gradient") if "gradient" in d else d.get("int") if "int" in d else None
+
+def _hl_set(active, inactive):
+    script = (f'hl.config({{ general = {{ col = {{ active_border = "{active}", '
+              f'inactive_border = "{inactive}" }} }} }})')
+    return subprocess.run(["hyprctl", "eval", script],
+                          capture_output=True).returncode == 0
+
+def borders_on():
+    """Turn the focused-window border red while recording (Hyprland only)."""
+    if not BORDER_ON or _hl_get("general:col.active_border") is None:
+        return
+    saved = {opt: _hl_get(opt) for opt in ("general:col.active_border",
+                                           "general:col.inactive_border")}
+    try:
+        (RUNTIME / "voice-input.borders.json").write_text(json.dumps(saved))
+    except OSError:
+        pass
+    _hl_set(BORDER_ACTIVE, BORDER_INACTIVE)
+
+def borders_off():
+    """Restore saved border colors (no-op if borders weren't changed)."""
+    state = RUNTIME / "voice-input.borders.json"
+    try:
+        saved = json.loads(state.read_text())
+        state.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        return
+    def rgba_of(grad):
+        """Gradient string -> rgba(...) for hl.config (first stop; 0 = transparent)."""
+        if grad is None or grad == "":
+            return None
+        first = grad.split(",")[0].split()[0]
+        if first == "0":
+            return "rgba(00000000)"   # fully transparent border
+        c = _argb_to_rgba(first)
+        if grad.count(",") or not grad.endswith("0deg"):
+            log(f"border restore: multi-stop gradient degraded to {c!r}")
+        return c
+    active = rgba_of(saved.get("general:col.active_border"))
+    inactive = rgba_of(saved.get("general:col.inactive_border"))
+    if not _hl_set(active or BORDER_ACTIVE, inactive or BORDER_INACTIVE):
+        log("border restore: hl.config eval failed")
+
+def worker(source):
+    PIDFILE.write_text(str(os.getpid()))
+    try:
+        borders_on()
+        try:
+            text = asyncio.run(stream(source))
+            PIDFILE.unlink(missing_ok=True)
+            type_text(text)
+        finally:
+            borders_off()
+    except Exception as e:
+        PIDFILE.unlink(missing_ok=True)
+        log(f"error: {type(e).__name__}: {e!r}\n{traceback.format_exc()}")
+        notify("voice-input failed", str(e)[:80] or type(e).__name__)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    if "--worker" in sys.argv:
+        src = ("wav", sys.argv[2]) if len(sys.argv) > 2 else ("mic",)
+        worker(src)
+    elif "--test" in sys.argv:
+        text = asyncio.run(stream(("wav", sys.argv[2])))
+        print("TRANSCRIPT:", repr(text))
+    elif is_running() and (pid := is_running()):
+        os.kill(pid, signal.SIGTERM)
+    else:
+        toggle()

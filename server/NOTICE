@@ -1,0 +1,34 @@
+hypr-input — bundled upstream components
+========================================
+
+This directory contains a modified copy of `ws_server.py` from:
+
+    Confucius4-R2T2: A Low Latency and High Accuracy Real-Time Speech Recognition Model
+    https://github.com/netease-youdao/Confucius4-R2T2
+    Copyright 2026 The NetEase Youdao team.
+    License: Apache-2.0 (see LICENSE in this directory)
+
+Modifications (also marked with `# patched` inline):
+  * Engine init arguments made environment-configurable
+    (GPU_MEM_UTIL, MAX_MODEL_LEN) and sized for GPUs shared with a desktop
+    (upstream hardcodes 0.95 / 65536).
+  * max_new_tokens raised from 1 to 1024 so the offline transcribe() finalize
+    has a usable decode budget.
+  * The EOS handler re-decodes the full utterance offline and returns the
+    complete punctuated transcript (streaming finish never emits terminal
+    punctuation), falling back to the streaming finish on error.
+  * Full-utterance PCM accumulation (full_pcm_list) for the offline finalize.
+
+These changes are provided under the Apache-2.0 license, consistent with the
+upstream project. The rest of hypr-input is MIT-licensed (see the repository
+root LICENSE) and is not derived from upstream code.
+
+The Confucius4-R2T2 MODEL WEIGHTS are NOT part of this repository and are NOT
+redistributed. They are downloaded at install time directly from Hugging Face
+under the NetEase Model Use License Agreement
+(https://github.com/netease-youdao/Confucius4-R2T2/blob/master/MODEL_LICENSE),
+which is not an open-source license. Review it before commercial use.
+
+Related upstream projects used at runtime (downloaded, not bundled):
+  * FireRedVAD (Stream-VAD) — FireRedTeam, Hugging Face
+  * qwen-asr — Qwen team

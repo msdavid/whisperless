@@ -1,0 +1,15 @@
+# session/runtime artifacts
+.pi/
+*.log
+*.raw
+
+# editor + system
+*.bak.*
+__pycache__/
+.idea/
+.vscode/
+.DS_Store
+
+# local test files
+*.wav
+!resources/*.wav
