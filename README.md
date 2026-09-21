@@ -106,8 +106,9 @@ the whole utterance offline.
 
 ## Install
 
-Arch Linux: [`whisperless` on the AUR](https://aur.archlinux.org/packages/whisperless)
-(client + user service unit; the GPU server itself is set up by the installer step below).
+Arch Linux: download [`whisperless-0.1.0-1-any.pkg.tar.zst`](https://github.com/msdavid/whisperless/releases/tag/v0.1.0)
+from Releases and `sudo pacman -U` it (client + user service unit; the GPU server itself is set up
+by the installer step below). An AUR submission is prepared in [aur/](aur/) pending AUR account availability.
 
 ```bash
 git clone https://github.com/msdavid/whisperless && cd whisperless
