@@ -1,5 +1,12 @@
 # hypr-input — R2T2 voice input for Linux desktops
 
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%7C%20X11)-blue)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76b900)
+![Cloud](https://img.shields.io/badge/cloud-none%20%2F%20100%25%20local-brightgreen)
+![ASR](https://img.shields.io/badge/ASR-Confucius4--R2T2-orange)
+
 Push-to-talk dictation for Hyprland, sway, i3 and other Linux desktops using
 [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2)
 streaming ASR. Press a hotkey, speak, press again — the text (with punctuation)
