@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""voice-input — R2T2 push-to-talk dictation for Hyprland (toggle pattern).
+"""whisperless — R2T2 push-to-talk dictation for Hyprland (toggle pattern).
 
 Usage:
-  voice-input            # toggle: start recording / stop and type text
-  voice-input --worker   # internal: the recording session itself
-  voice-input --test F   # stream F (16 kHz mono wav) instead of the mic
+  whisperless            # toggle: start recording / stop and type text
+  whisperless --worker   # internal: the recording session itself
+  whisperless --test F   # stream F (16 kHz mono wav) instead of the mic
 
-Configuration: ~/.config/hypr-input/config.conf (shell-style KEY=value, see
-hypr-input.conf in the package for the documented defaults).
+Configuration: ~/.config/whisperless/config.conf (shell-style KEY=value, see
+whisperless.conf in the package for the documented defaults).
 
 Protocol (Confucius4-R2T2 ws_server, /asr_stream_api_v1):
   JSON header -> raw int16 PCM binary frames -> "YOUDAO_ONETIME_ASR_STREAM_EOS".
@@ -29,8 +29,8 @@ from pathlib import Path
 
 EOS = "YOUDAO_ONETIME_ASR_STREAM_EOS"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
-PIDFILE = RUNTIME / "voice-input.pid"
-LOGFILE = Path.home() / ".cache" / "voice-input.log"
+PIDFILE = RUNTIME / "whisperless.pid"
+LOGFILE = Path.home() / ".cache" / "whisperless.log"
 SR = 16000
 CHUNK_MS = 160
 
@@ -53,7 +53,7 @@ def _strip_comment(line):
 
 def load_config():
     cfg = {}
-    p = Path.home() / ".config" / "hypr-input" / "config.conf"
+    p = Path.home() / ".config" / "whisperless" / "config.conf"
     try:
         for line in p.read_text().splitlines():
             line = _strip_comment(line).strip()
@@ -83,7 +83,7 @@ BORDER_INACTIVE = CFG.get("BORDER_INACTIVE_COLOR", "rgba(ff333355)")
 def notify(title, body=""):
     if not NOTIFY_ON:
         return
-    subprocess.run(["notify-send", "-a", "voice-input", "-t", "2500", title, body],
+    subprocess.run(["notify-send", "-a", "whisperless", "-t", "2500", title, body],
                    check=False)
 
 def _have(bin_name):
@@ -250,7 +250,7 @@ async def stream(source):
 def type_text(text):
     text = text.strip()
     if not text:
-        notify("voice-input", "nothing heard")
+        notify("whisperless", "nothing heard")
         return
     time.sleep(SETTLE)  # settle: let stop-press modifiers fully release before injecting keys
     typed = None
@@ -268,7 +268,7 @@ def type_text(text):
         log(f"typer {typer} failed rc={r.returncode}")
     if not typed:
         log("error: no typer available (need wtype, ydotool or xdotool)")
-        notify("voice-input failed", "no text injector found")
+        notify("whisperless failed", "no text injector found")
         return
     log(f"typed via {typed}: {text!r}")
     notify("\u2705 " + (text[:60] + ("\u2026" if len(text) > 60 else "")))
@@ -307,14 +307,14 @@ def borders_on():
     saved = {opt: _hl_get(opt) for opt in ("general:col.active_border",
                                            "general:col.inactive_border")}
     try:
-        (RUNTIME / "voice-input.borders.json").write_text(json.dumps(saved))
+        (RUNTIME / "whisperless.borders.json").write_text(json.dumps(saved))
     except OSError:
         pass
     _hl_set(BORDER_ACTIVE, BORDER_INACTIVE)
 
 def borders_off():
     """Restore saved border colors (no-op if borders weren't changed)."""
-    state = RUNTIME / "voice-input.borders.json"
+    state = RUNTIME / "whisperless.borders.json"
     try:
         saved = json.loads(state.read_text())
         state.unlink(missing_ok=True)
@@ -349,7 +349,7 @@ def worker(source):
     except Exception as e:
         PIDFILE.unlink(missing_ok=True)
         log(f"error: {type(e).__name__}: {e!r}\n{traceback.format_exc()}")
-        notify("voice-input failed", str(e)[:80] or type(e).__name__)
+        notify("whisperless failed", str(e)[:80] or type(e).__name__)
         sys.exit(1)
 
 if __name__ == "__main__":

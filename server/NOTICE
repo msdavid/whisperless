@@ -1,4 +1,4 @@
-hypr-input — bundled upstream components
+whisperless — bundled upstream components
 ========================================
 
 This directory contains a modified copy of `ws_server.py` from:
@@ -20,7 +20,7 @@ Modifications (also marked with `# patched` inline):
   * Full-utterance PCM accumulation (full_pcm_list) for the offline finalize.
 
 These changes are provided under the Apache-2.0 license, consistent with the
-upstream project. The rest of hypr-input is MIT-licensed (see the repository
+upstream project. The rest of whisperless is MIT-licensed (see the repository
 root LICENSE) and is not derived from upstream code.
 
 The Confucius4-R2T2 MODEL WEIGHTS are NOT part of this repository and are NOT

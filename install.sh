@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hypr-input installer — R2T2 push-to-talk dictation for Hyprland/sway/i3/X11.
+# whisperless installer — R2T2 push-to-talk dictation for Hyprland/sway/i3/X11.
 #
 # Designed for a fresh machine: installs system deps, uv + Python 3.12, the
 # R2T2 checkout with venv, model weights, the patched server (systemd user
@@ -14,15 +14,15 @@
 # gets printed instructions (the client itself is compositor-agnostic via
 # wtype/ydotool/xdotool).
 #
-# Configuration: ~/.config/hypr-input/config.conf (installed from
-# hypr-input.conf on first run). Edit + re-run install.sh to apply
+# Configuration: ~/.config/whisperless/config.conf (installed from
+# whisperless.conf on first run). Edit + re-run install.sh to apply
 # server-side values; client values are read live per dictation.
 #
 # Env flags:  SKIP_MODELS=1 (keep weights), SKIP_SMOKE=1 (skip wav smoke test)
 set -euo pipefail
 
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONF_DIR="$HOME/.config/hypr-input"
+CONF_DIR="$HOME/.config/whisperless"
 REPO_URL="https://github.com/netease-youdao/Confucius4-R2T2"
 
 step() { printf '\n==> %s\n' "$*"; }
@@ -31,13 +31,13 @@ die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   cat <<'EOF'
-hypr-input installer — R2T2 push-to-talk dictation for Linux desktops
+whisperless installer — R2T2 push-to-talk dictation for Linux desktops
 
 Usage: ./install.sh
 
 Installs and configures everything for a fresh machine: system deps, uv +
 Python 3.12, the R2T2 checkout + venv, model weights, patched GPU server
-(systemd user service), the voice-input client and your hotkey. Idempotent.
+(systemd user service), the whisperless client and your hotkey. Idempotent.
 
 Interactive prompts: install destination and hotkey (Enter keeps default).
 
@@ -46,8 +46,8 @@ Environment flags:
   SKIP_SMOKE=1      skip the end-to-end WAV smoke test
   HOTKEY="..."      pre-answer the hotkey prompt (non-interactive installs)
 
-Configuration: ~/.config/hypr-input/config.conf
-  (installed from hypr-input.conf; edit + re-run to apply server changes)
+Configuration: ~/.config/whisperless/config.conf
+  (installed from whisperless.conf; edit + re-run to apply server changes)
 
 Uninstall: ./uninstall.sh          (add --purge to delete venv + models)
 Docs:      README.md
@@ -126,10 +126,15 @@ fi
 have uv || die "uv not found after install"
 
 # ------------------------------------------------------- S2 (Config)
-step "S2 (Config): hypr-input configuration"
+step "S2 (Config): whisperless configuration"
+# Migration from the 0.1.0 hypr-input layout
+if [ -d "$HOME/.config/hypr-input" ] && [ ! -d "$CONF_DIR" ]; then
+  mv "$HOME/.config/hypr-input" "$CONF_DIR"
+  info "migrated config: ~/.config/hypr-input -> ~/.config/whisperless"
+fi
 mkdir -p "$CONF_DIR"
 if [ ! -f "$CONF_DIR/config.conf" ]; then
-  cp "$PKG_DIR/hypr-input.conf" "$CONF_DIR/config.conf"
+  cp "$PKG_DIR/whisperless.conf" "$CONF_DIR/config.conf"
   info "installed $CONF_DIR/config.conf (defaults)"
 else
   info "keeping existing $CONF_DIR/config.conf"
@@ -141,10 +146,10 @@ source "$CONF_DIR/config.conf"
 while IFS= read -r key; do
   if ! grep -qE "^${key}=" "$CONF_DIR/config.conf"; then
     [ -n "$(tail -c1 "$CONF_DIR/config.conf")" ] && printf '\n' >> "$CONF_DIR/config.conf"
-    grep -E "^${key}=" "$PKG_DIR/hypr-input.conf" | head -1 >> "$CONF_DIR/config.conf"
+    grep -E "^${key}=" "$PKG_DIR/whisperless.conf" | head -1 >> "$CONF_DIR/config.conf"
     info "added new option: $key"
   fi
-done < <(grep -oE '^[A-Z_]+=' "$PKG_DIR/hypr-input.conf" | tr -d '=')
+done < <(grep -oE '^[A-Z_]+=' "$PKG_DIR/whisperless.conf" | tr -d '=')
 # Defaults for keys missing from very old configs
 HOTKEY="${HOTKEY:-SUPER + K}"; SERVER_DIR="${SERVER_DIR:-$HOME/apps/r2t2/Confucius4-R2T2}"
 HOTKEY="${ENV_HOTKEY:-$HOTKEY}"   # env override wins over config
@@ -205,15 +210,20 @@ else
 fi
 
 # ------------------------------------------------------- S6 (Client)
-step "S6 (Client): voice-input"
+step "S6 (Client): whisperless"
 mkdir -p "$HOME/.local/bin"
-{ echo "#!$SERVER_DIR/.venv/bin/python"; tail -n +2 "$PKG_DIR/voice-input"; } \
-  > "$HOME/.local/bin/voice-input"
-chmod +x "$HOME/.local/bin/voice-input"
+{ echo "#!$SERVER_DIR/.venv/bin/python"; tail -n +2 "$PKG_DIR/whisperless"; } \
+  > "$HOME/.local/bin/whisperless"
+chmod +x "$HOME/.local/bin/whisperless"
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) info "note: $HOME/.local/bin is not in PATH" ;; esac
 
 # ------------------------------------------------------- S7 (Service)
-step "S7 (Service): r2t2.service (systemd user unit)"
+step "S7 (Service): whisperless.service (systemd user unit)"
+if [ -f "$HOME/.config/systemd/user/r2t2.service" ]; then
+  systemctl --user disable --now r2t2.service 2>/dev/null || true
+  rm -f "$HOME/.config/systemd/user/r2t2.service"
+  info "migrated legacy r2t2.service -> whisperless.service"
+fi
 mkdir -p "$HOME/.config/systemd/user"
 UNIT_DIR="%h${SERVER_DIR#"$HOME"}"
 sed -e "s|@SERVER_DIR@|$UNIT_DIR|g" \
@@ -222,29 +232,29 @@ sed -e "s|@SERVER_DIR@|$UNIT_DIR|g" \
     -e "s|@GPU_INDEX@|$GPU_INDEX|g" \
     -e "s|@GPU_MEM_UTIL@|$GPU_MEM_UTIL|g" \
     -e "s|@MAX_MODEL_LEN@|$MAX_MODEL_LEN|g" \
-    "$PKG_DIR/r2t2.service" > "$HOME/.config/systemd/user/r2t2.service"
+    "$PKG_DIR/whisperless.service" > "$HOME/.config/systemd/user/whisperless.service"
 systemctl --user daemon-reload
-systemctl --user enable --now r2t2.service
-systemctl --user restart r2t2.service   # apply any refreshed server files
+systemctl --user enable --now whisperless.service
+systemctl --user restart whisperless.service   # apply any refreshed server files
 
 step "S7 (Service): waiting for model warmup (first boot: 1-2 min)"
-SINCE=$(systemctl --user show r2t2 -p ActiveEnterTimestamp --value)
+SINCE=$(systemctl --user show whisperless -p ActiveEnterTimestamp --value)
 ready=""
 for _ in $(seq 1 60); do
-  if journalctl --user -u r2t2 --since "$SINCE" --no-pager 2>/dev/null | grep -q "warmup complete"; then
+  if journalctl --user -u whisperless --since "$SINCE" --no-pager 2>/dev/null | grep -q "warmup complete"; then
     ready=1
     break
   fi
-  systemctl --user is-active --quiet r2t2 || { journalctl --user -u r2t2 -n 25 --no-pager; die "r2t2 service failed to start"; }
+  systemctl --user is-active --quiet whisperless || { journalctl --user -u whisperless -n 25 --no-pager; die "whisperless service failed to start"; }
   sleep 5
 done
-[ -n "$ready" ] || die "server did not warm up within 5 minutes; check: journalctl --user -u r2t2 -f"
+[ -n "$ready" ] || die "server did not warm up within 5 minutes; check: journalctl --user -u whisperless -f"
 info "server ready on $BIND_IP:$PORT"
 
 # ------------------------------------------------------- S8 (Smoke test)
 if [ "${SKIP_SMOKE:-0}" != 1 ] && [ -f "$SERVER_DIR/resources/test.wav" ]; then
   step "S8 (Smoke test): streaming repo sample through the full pipeline"
-  "$HOME/.local/bin/voice-input" --test "$SERVER_DIR/resources/test.wav"
+  "$HOME/.local/bin/whisperless" --test "$SERVER_DIR/resources/test.wav"
 else
   step "S8 (Smoke test): skipped"
 fi
@@ -264,20 +274,20 @@ detect_wm() {
 }
 WM_DETECTED=$(detect_wm)
 
-insert_bind() {  # FILE BINDLINE COMMENT — replace any voice-input bind, append fresh
-  cp "$1" "$1.bak.hypr-input"
-  sed -i '/voice-input/d' "$1"
+insert_bind() {  # FILE BINDLINE COMMENT — replace any whisperless bind, append fresh
+  cp "$1" "$1.bak.whisperless"
+  sed -i '/whisperless/d' "$1"
   printf '%s\n' "$(cat "$1")" > "$1"   # normalize trailing newlines/blank lines
   printf '\n%s\n%s\n' "$3" "$2" >> "$1"
   info "bind set in $1: $2"
 }
 
-replace_hyprvoice() {  # FILE — voice-input replaces hyprvoice; unbind it
+replace_hyprvoice() {  # FILE — whisperless replaces hyprvoice; unbind it
   local f="$1"
   grep -q "hyprvoice-toggle" "$f" || return 0
-  cp "$f" "$f.bak.hypr-input"
+  cp "$f" "$f.bak.whisperless"
   sed -i '/hyprvoice-toggle/d' "$f"
-  info "removed hyprvoice-toggle bind in $f (replaced by voice-input)"
+  info "removed hyprvoice-toggle bind in $f (replaced by whisperless)"
 }
 
 wmkey() {  # "SUPER + K" -> sway/i3 bindsym form: $mod+k
@@ -289,11 +299,11 @@ case "$WM_DETECTED" in
     for f in "$HOME/.config/hypr/hyprland.lua" "$HOME/.config/hypr/hyprland.conf"; do
       [ -f "$f" ] || continue
       case "$f" in
-        *.lua) BINDLINE="hl.bind(\"$HOTKEY\", hl.dsp.exec_cmd(\"voice-input\"))" ;;
-        *)     BINDLINE="bind = ${HOTKEY// + /, }, exec, voice-input" ;;
+        *.lua) BINDLINE="hl.bind(\"$HOTKEY\", hl.dsp.exec_cmd(\"whisperless\"))" ;;
+        *)     BINDLINE="bind = ${HOTKEY// + /, }, exec, whisperless" ;;
       esac
-      COMMENT='-- voice-input (R2T2 dictation), added by hypr-input'
-      case "$f" in *.conf) COMMENT='# voice-input (R2T2 dictation), added by hypr-input' ;; esac
+      COMMENT='-- whisperless (R2T2 dictation), added by whisperless'
+      case "$f" in *.conf) COMMENT='# whisperless (R2T2 dictation), added by whisperless' ;; esac
       if grep -qF "$BINDLINE" "$f"; then info "bind already present in $f"
       else insert_bind "$f" "$BINDLINE" "$COMMENT"; fi
       replace_hyprvoice "$f"
@@ -302,37 +312,37 @@ case "$WM_DETECTED" in
     ;;
   sway)
     f="$HOME/.config/sway/config"
-    BINDLINE="bindsym $(wmkey "$HOTKEY") exec voice-input"
+    BINDLINE="bindsym $(wmkey "$HOTKEY") exec whisperless"
     if [ -f "$f" ]; then
       if grep -qF "$BINDLINE" "$f"; then info "bind already present in $f"
-      else insert_bind "$f" "$BINDLINE" "# voice-input (R2T2 dictation), added by hypr-input"; fi
+      else insert_bind "$f" "$BINDLINE" "# whisperless (R2T2 dictation), added by whisperless"; fi
       have swaymsg && swaymsg reload >/dev/null 2>&1 || true
     else
-      info "sway detected but no config at $f — add manually: bindsym \$mod+<key> exec voice-input"
+      info "sway detected but no config at $f — add manually: bindsym \$mod+<key> exec whisperless"
     fi
     ;;
   i3)
     f="$HOME/.config/i3/config"
-    BINDLINE="bindsym $(wmkey "$HOTKEY") exec voice-input"
+    BINDLINE="bindsym $(wmkey "$HOTKEY") exec whisperless"
     if [ -f "$f" ]; then
       if grep -qF "$BINDLINE" "$f"; then info "bind already present in $f"
-      else insert_bind "$f" "$BINDLINE" "# voice-input (R2T2 dictation), added by hypr-input"; fi
+      else insert_bind "$f" "$BINDLINE" "# whisperless (R2T2 dictation), added by whisperless"; fi
       have i3-msg && i3-msg reload >/dev/null 2>&1 || true
     else
-      info "i3 detected but no config at $f — add manually: bindsym \$mod+<key> exec voice-input"
+      info "i3 detected but no config at $f — add manually: bindsym \$mod+<key> exec whisperless"
     fi
     ;;
   *)
     info "window manager/desktop '${WM_DETECTED}' is not auto-configured."
-    info "Bind any key of your choice to run:  voice-input"
-    info "  GNOME:  Settings > Keyboard > Custom Shortcuts -> command: voice-input"
-    info "  KDE:    System Settings > Shortcuts > Add Command -> voice-input"
-    info "  X11 WM: add bindsym / keymap entry calling voice-input"
+    info "Bind any key of your choice to run:  whisperless"
+    info "  GNOME:  Settings > Keyboard > Custom Shortcuts -> command: whisperless"
+    info "  KDE:    System Settings > Shortcuts > Add Command -> whisperless"
+    info "  X11 WM: add bindsym / keymap entry calling whisperless"
     ;;
 esac
 
 step "Done"
 info "config:  $CONF_DIR/config.conf"
-info "service: systemctl --user status r2t2   (logs: journalctl --user -u r2t2 -f)"
-info "client:  $HOME/.local/bin/voice-input   (log: $HOME/.cache/voice-input.log)"
+info "service: systemctl --user status whisperless   (logs: journalctl --user -u whisperless -f)"
+info "client:  $HOME/.local/bin/whisperless   (log: $HOME/.cache/whisperless.log)"
 info "usage:   press $HOTKEY, speak, press again — text is typed into focus."

@@ -1,4 +1,4 @@
-# hypr-input — R2T2 voice input for Linux desktops
+# whisperless — R2T2 voice input for Linux desktops
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Linux%20(Wayland%20%7C%20X11)-blue)
@@ -16,7 +16,7 @@ is typed into whatever window has focus.
 CTRL+space ──▶ 🎤 speak ──▶ CTRL+space ──▶ "What time is it? It works." typed into focus
 ```
 
-## Why hypr-input?
+## Why whisperless?
 
 - **Runs 100% locally.** The model lives on your own GPU — no cloud APIs, no
   accounts, no API keys, no telemetry. Audio never leaves the machine, and it
@@ -42,7 +42,7 @@ CTRL+space ──▶ 🎤 speak ──▶ CTRL+space ──▶ "What time is it?
 ## How it works
 
 ```
-r2t2.service (systemd user, always warm)     ~/.local/bin/voice-input
+whisperless.service (systemd user, always warm)     ~/.local/bin/whisperless
   Confucius4-R2T2 ws_server.py               pw-record 16 kHz s16 → WS frames →
   vLLM on your GPU, ~8-9GB VRAM              ws://127.0.0.1:8272/asr_stream_api_v1
   boots in ~2 min, latency ~0.5s/chunk       → collects incremental text → wtype
@@ -69,7 +69,7 @@ mode never emits it).
 ## Install
 
 ```bash
-git clone <this-repo-or-copy> hypr-input && cd hypr-input
+git clone <this-repo-or-copy> whisperless && cd whisperless
 ./install.sh
 ```
 
@@ -80,14 +80,14 @@ handles everything:
 | Step | What happens |
 |------|--------------|
 | S1 (Preflight) | Installs missing system deps (`git curl libnotify`, a text injector, a mic recorder) via pacman/apt/dnf, checks the NVIDIA driver, bootstraps `uv` |
-| S2 (Config) | Installs `~/.config/hypr-input/config.conf` from `hypr-input.conf` (never overwrites an existing one). **Asks for the install destination and hotkey** — press Enter to keep the defaults; your answers are written back to the config |
+| S2 (Config) | Installs `~/.config/whisperless/config.conf` from `whisperless.conf` (never overwrites an existing one). **Asks for the install destination and hotkey** — press Enter to keep the defaults; your answers are written back to the config |
 | S3 (Server Setup) | Clones R2T2 to `~/apps/r2t2/Confucius4-R2T2`, creates a uv venv with Python 3.12, installs the package (vLLM backend) |
 | S4 (Server files) | Copies the patched `server/ws_server.py` over the clone |
 | S5 (Models) | Downloads the ASR model (~4GB) + Stream-VAD (~2MB); resumes if partial |
-| S6 (Client) | Installs `voice-input` to `~/.local/bin` (shebang pointed at the venv) |
-| S7 (Service) | Renders `r2t2.service` from config, enables + starts it, waits for warmup |
+| S6 (Client) | Installs `whisperless` to `~/.local/bin` (shebang pointed at the venv) |
+| S7 (Service) | Renders `whisperless.service` from config, enables + starts it, waits for warmup |
 | S8 (Smoke test) | Streams the repo's sample WAV through the whole pipeline and prints the transcript |
-| S9 (Hotkey) | Detects the window manager and writes the bind: Hyprland (`hyprland.lua`/`.conf`), sway/i3 (`bindsym $mod+k exec voice-input`) — anything else prints exact binding instructions. Reloads the compositor config |
+| S9 (Hotkey) | Detects the window manager and writes the bind: Hyprland (`hyprland.lua`/`.conf`), sway/i3 (`bindsym $mod+k exec whisperless`) — anything else prints exact binding instructions. Reloads the compositor config |
 
 Flags: `SKIP_MODELS=1 ./install.sh` (weights already present), `SKIP_SMOKE=1 ./install.sh`.
 
@@ -96,7 +96,7 @@ service auto-restarts on failure and starts at login.
 
 ## Configure
 
-Everything lives in `~/.config/hypr-input/config.conf` (shell-style `KEY=value`):
+Everything lives in `~/.config/whisperless/config.conf` (shell-style `KEY=value`):
 
 ```bash
 SERVER_DIR="$HOME/apps/r2t2/Confucius4-R2T2"  # checkout; venv + models live here
@@ -139,8 +139,8 @@ The server and client are compositor-agnostic; only the hotkey binding is WM-spe
 | WM / desktop | Bind written by installer | Config reload |
 |---|---|---|
 | Hyprland | `hyprland.lua` (lua) or `hyprland.conf` | `hyprctl reload` |
-| sway | `bindsym $mod+k exec voice-input` in `~/.config/sway/config` | `swaymsg reload` |
-| i3 | `bindsym $mod+k exec voice-input` in `~/.config/i3/config` | `i3-msg reload` |
+| sway | `bindsym $mod+k exec whisperless` in `~/.config/sway/config` | `swaymsg reload` |
+| i3 | `bindsym $mod+k exec whisperless` in `~/.config/i3/config` | `i3-msg reload` |
 | anything else | printed instructions (GNOME/KDE shortcuts, X11 WM keymaps) | — |
 
 Detection order: `WM=` config override → `hyprctl`/`swaymsg`/`i3-msg` presence →
@@ -170,7 +170,7 @@ tail and drains buffered mic audio before finalizing, so trailing words survive.
 
 **Replacing hyprvoice:** on Hyprland the installer removes any `hyprvoice-toggle`
 bind it finds (that's the migration path from the old whisperx flow — `CTRL+space`
-now runs voice-input). The hyprvoice scripts themselves are left on disk but unbound.
+now runs whisperless). The hyprvoice scripts themselves are left on disk but unbound.
 
 Border feedback reads the current border colors at recording start and restores them
 at the end (exact for single-color 0° gradients; multi-stop gradients degrade to
@@ -182,28 +182,28 @@ border feature is silently skipped.
 | Path | Role |
 |------|------|
 | `install.sh` / `uninstall.sh` | idempotent installer / uninstaller (`--purge` deletes models too) |
-| `hypr-input.conf` | documented default config (source of the installed config) |
-| `voice-input` | client source (installer installs it with a venv shebang) |
-| `r2t2.service` | systemd user unit template (rendered from config at install) |
+| `whisperless.conf` | documented default config (source of the installed config) |
+| `whisperless` | client source (installer installs it with a venv shebang) |
+| `whisperless.service` | systemd user unit template (rendered from config at install) |
 | `server/ws_server.py` | canonical patched server, copied over the upstream clone |
 | `offline_probe.py` | diagnostic: offline decode of a wav on the same engine |
 
 Runtime paths: `~/apps/r2t2/Confucius4-R2T2/` (checkout, `.venv`, `models/`,
-`checkpoints/vad/`), `~/.config/systemd/user/r2t2.service`,
-`~/.config/hypr-input/config.conf`, `~/.local/bin/voice-input`,
-`~/.cache/voice-input.log` (client log).
+`checkpoints/vad/`), `~/.config/systemd/user/whisperless.service`,
+`~/.config/whisperless/config.conf`, `~/.local/bin/whisperless`,
+`~/.cache/whisperless.log` (client log).
 
 ## Operations & troubleshooting
 
 ```bash
 systemctl --user status r2t2          # server health
 journalctl --user -u r2t2 -f          # server logs (includes per-chunk latency)
-tail -f ~/.cache/voice-input.log      # client log (transcript chunks, errors+tracebacks)
-~/.local/bin/voice-input --test f.wav # 16 kHz mono s16 wav through the pipeline
+tail -f ~/.cache/whisperless.log      # client log (transcript chunks, errors+tracebacks)
+~/.local/bin/whisperless --test f.wav # 16 kHz mono s16 wav through the pipeline
 systemctl --user restart r2t2         # after changing server-side config or weights
 ```
 
-- **"voice-input failed" with empty text** → check `~/.cache/voice-input.log`; errors
+- **"whisperless failed" with empty text** → check `~/.cache/whisperless.log`; errors
   log the exception type + traceback.
 - **"no text injector found"** → install `wtype` (Wayland) or `ydotool`/`xdotool`, or
   set `TYPER=` explicitly; the client logs which backend it used for every insert.
