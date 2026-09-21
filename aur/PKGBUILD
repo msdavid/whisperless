@@ -1,0 +1,47 @@
+# Maintainer: Mauro <mauro@sauco.net>
+pkgname=whisperless
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Push-to-talk voice dictation for Linux desktops - local R2T2 ASR on your NVIDIA GPU"
+arch=('any')
+url="https://github.com/msdavid/whisperless"
+license=('MIT' 'Apache')
+depends=('python' 'python-websockets' 'libnotify')
+optdepends=('wtype: text injection on Wayland (recommended)'
+            'ydotool: text injection via uinput (needs ydotoold daemon)'
+            'xdotool: text injection on X11'
+            'pipewire: mic capture via pw-record (recommended)'
+            'alsa-utils: mic capture fallback (arecord)')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('5e3c354482461e4210ecb9704b60559b1f03f62570a5fed083d8d6212ebc4347')
+
+# NOTE: this package ships the client + user service unit + docs only.
+# The ASR server (R2T2 checkout, venv, ~4GB model) is not packaged; set it up
+# with the repo's install.sh (default layout: ~/apps/r2t2/Confucius4-R2T2),
+# then: systemctl --user daemon-reload && systemctl --user enable --now whisperless
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  # client (system python)
+  install -Dm755 whisperless "$pkgdir/usr/bin/whisperless"
+  sed -i '1s|^.*$|#!/usr/bin/python3|' "$pkgdir/usr/bin/whisperless"
+
+  # user service unit, rendered for the default server layout
+  install -d "$pkgdir/usr/lib/systemd/user"
+  sed -e 's|@SERVER_DIR@|%h/apps/r2t2/Confucius4-R2T2|g' \
+      -e 's|@BIND_IP@|127.0.0.1|g' \
+      -e 's|@PORT@|8272|g' \
+      -e 's|@GPU_INDEX@|0|g' \
+      -e 's|@GPU_MEM_UTIL@|0.55|g' \
+      -e 's|@MAX_MODEL_LEN@|8192|g' \
+      whisperless.service > "$pkgdir/usr/lib/systemd/user/whisperless.service"
+
+  # docs, config example, licenses
+  install -Dm644 whisperless.conf "$pkgdir/usr/share/doc/whisperless/whisperless.conf"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/whisperless/README.md"
+  install -Dm644 llms.txt "$pkgdir/usr/share/doc/whisperless/llms.txt"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/whisperless/LICENSE"
+  install -Dm644 server/NOTICE "$pkgdir/usr/share/licenses/whisperless/NOTICE"
+  install -Dm644 server/LICENSE "$pkgdir/usr/share/licenses/whisperless/server-LICENSE-Apache-2.0"
+}

@@ -1,0 +1,20 @@
+pkgbase = whisperless
+	pkgdesc = Push-to-talk voice dictation for Linux desktops - local R2T2 ASR on your NVIDIA GPU
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/msdavid/whisperless
+	arch = any
+	license = MIT
+	license = Apache
+	depends = python
+	depends = python-websockets
+	depends = libnotify
+	optdepends = wtype: text injection on Wayland (recommended)
+	optdepends = ydotool: text injection via uinput (needs ydotoold daemon)
+	optdepends = xdotool: text injection on X11
+	optdepends = pipewire: mic capture via pw-record (recommended)
+	optdepends = alsa-utils: mic capture fallback (arecord)
+	source = whisperless-0.1.0.tar.gz::https://github.com/msdavid/whisperless/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = 5e3c354482461e4210ecb9704b60559b1f03f62570a5fed083d8d6212ebc4347
+
+pkgname = whisperless
