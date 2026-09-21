@@ -98,7 +98,9 @@ the whole utterance offline.
 - Text injector: `wtype` (Wayland) or `ydotool` or `xdotool` (X11) — at least one;
   the installer installs `wtype` if none is present
 - Mic capture: PipeWire (`pw-record`) or ALSA (`arecord`)
-- NVIDIA GPU: ≥6GB free VRAM (a 16GB card shares comfortably with a desktop)
+- NVIDIA GPU: ~7GB VRAM measured floor (`GPU_MEM_UTIL=0.42`); the default config
+  holds ~9.4GB (fine on a 16GB card alongside a desktop; 8GB cards work with
+  `GPU_MEM_UTIL≈0.40` and `MAX_MODEL_LEN=4096`, untested)
 - Network for the one-time setup (~15GB: wheels + model weights)
 - Non-NVIDIA GPUs are untested; the vLLM backend requires CUDA
 
