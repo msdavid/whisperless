@@ -7,7 +7,7 @@ should stay small too.
 ## Development setup
 
 ```bash
-git clone <your-fork> && cd whisperless
+git clone https://github.com/msdavid/whisperless && cd whisperless
 ./install.sh                 # full setup; safe to re-run
 # or, while iterating on code with models already in place:
 SKIP_MODELS=1 SKIP_SMOKE=1 ./install.sh
