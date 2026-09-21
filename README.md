@@ -72,9 +72,10 @@ punctuation comes from. Streaming lets the server process audio as you talk; the
 deliverable is offline-grade.
 
 Caveats worth knowing: the weights are under NetEase's license, not an OSI one
-([License](#license)); benchmark numbers above are upstream-reported — in our own
-English-heavy use it has held up ([details of our
-patches](#server-patches-why-and-what-to-redo-after-upstream-updates)).
+([License](#license)); benchmark numbers above are upstream-reported. In our own
+English-heavy use it has held up, including the author's thick accent, which
+whisper-style models routinely mangle — that alone settled the model choice
+([details of our patches](#server-patches-why-and-what-to-redo-after-upstream-updates)).
 
 ## How it works
 
@@ -301,6 +302,13 @@ Client consequence: `reset:True` messages replace the accumulated text.
 - [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) — the architecture it builds on
 - [FireRedVAD](https://huggingface.co/FireRedTeam/FireRedVAD) — streaming VAD
 - The old hyprvoice flow that motivated this rewrite
+
+## AI disclosure
+
+This project was vibe coded: a human made the design decisions, ran the testing and
+reviewed everything; a coding agent wrote most of the code, docs and installer.
+[`llms.txt`](llms.txt) is the agent-facing map of the whole system. Use it the way you
+would any fast-moving project: read what it runs before trusting it.
 
 ## License
 
