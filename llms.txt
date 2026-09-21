@@ -1,0 +1,90 @@
+# whisperless
+
+> Push-to-talk voice dictation for Linux desktops (Hyprland/sway/i3/X11) using Confucius4-R2T2 streaming ASR, 100% local on NVIDIA GPU. MIT client/installer; bundled server patch Apache-2.0; model weights NetEase license (not redistributed). v0.1.0. Information-dense reference for LLM agents operating this codebase; humans read README.md.
+
+## Layout
+
+- `whisperless` — client (Python 3.12, asyncio, `websockets` lib only). Source of truth = this repo copy; install.sh rewrites shebang to `~/apps/r2t2/Confucius4-R2T2/.venv/bin/python` when installing to `~/.local/bin/whisperless`.
+- `install.sh` — fresh-machine installer, idempotent. Steps S1 deps (pacman/apt/dnf pkgmap; one of wtype/ydotool/xdotool; one of pw-record/arecord; nvidia-smi required; uv bootstrap via astral.sh) → S2 config install/merge/migrate → S3 clone Confucius4-R2T2 + uv venv py3.12 + `uv pip install -e .` → S4 copy patched `server/ws_server.py` over checkout → S5 hf download model (4GB) + FireRedVAD Stream-VAD (2MB) → S6 client install → S7 render systemd unit from `@PLACEHOLDER@s` + enable + restart + warmup wait → S8 smoke test (repo `resources/test.wav` through full pipeline) → S9 WM-specific bind + reload. Interactive prompts: SERVER_DIR, HOTKEY (TTY only; env `HOTKEY=` overrides). Idempotent; existing venv/models reused.
+- `uninstall.sh` — removes service/client/binds; `--purge` deletes checkout (~15GB) + config. Does NOT restore hyprvoice binds.
+- `whisperless.conf` — documented default config; installed to `~/.config/whisperless/config.conf` (never overwritten if exists; missing keys merged from package on re-install; client reads live, server values baked into unit at install).
+- `whisperless.service` — template, `@PLACEHOLDER@s`: SERVER_DIR, BIND_IP, PORT, GPU_INDEX, GPU_MEM_UTIL, MAX_MODEL_LEN. Environment: CUDA_VISIBLE_DEVICES, GPU_MEM_UTIL, MAX_MODEL_LEN, PYTHONUNBUFFERED=1.
+- `server/ws_server.py` — patched copy of upstream Confucius4-R2T2 ws_server.py (Apache-2.0, NetEase Youdao). Source of truth = repo copy; NEVER edit `~/apps/r2t2` checkout directly.
+- `server/LICENSE` (Apache-2.0), `server/NOTICE` (change statement); `LICENSE` (MIT, rest).
+- `offline_probe.py` — diagnostic: direct offline `transcribe()` on a wav (bypasses streaming; needs service stopped, same VRAM budget).
+- Runtime paths: checkout+venv+models `~/apps/r2t2/Confucius4-R2T2` (models/Confucius4-R2T2, checkpoints/vad/Stream-VAD); unit `~/.config/systemd/user/whisperless.service`; config `~/.config/whisperless/config.conf`; client log `~/.cache/whisperless.log`; pidfile+border-state `$XDG_RUNTIME_DIR/whisperless.pid` / `whisperless.borders.json`; per-request server logs `~/apps/r2t2/Confucius4-R2T2/logs/requests/<uuid>.log`.
+
+## Config keys (defaults in whisperless.conf)
+
+- Server (baked into unit; re-run install.sh to apply): `SERVER_DIR=~/apps/r2t2/Confucius4-R2T2`, `PORT=8272`, `BIND_IP=127.0.0.1`, `GPU_INDEX=0`, `GPU_MEM_UTIL=0.55`, `MAX_MODEL_LEN=8192`.
+- Client (live per dictation): `HOTKEY="CTRL + space"` (lua syntax; auto-converted for .conf/sway/i3), `VOICE_LANG=English` (`zhen`=auto zh+en; sent per-connection in header), `MAX_SECS=120` (auto-stop), `SETTLE_DELAY=0.15` (pre-typing sleep, WM modifier race guard), `GRACE_TAIL=0.25` (post-stop capture; last-word protection), `TRAILING_SPACE=1`, `NOTIFY=1`, `MIC_TARGET=` (pw-record --target only), `TYPER=auto` (auto|wtype|ydotool|xdotool), `WM=auto` (auto|hyprland|sway|i3|other), `BORDER=1`, `BORDER_COLOR="rgba(ff3333ff)"`, `BORDER_INACTIVE_COLOR="rgba(ff333355)"`.
+- Client must never require any key (defaults in code); installer merges new keys into old configs (append; ensure trailing newline — glued-line bug exists if file lacks trailing \n).
+
+## Server protocol (upstream ws_server.py, /asr_stream_api_v1, ws://BIND_IP:PORT)
+
+- Flow: client sends one JSON header → binary int16 PCM frames (16kHz mono s16le; any block size accepted, server buffers; first chunk must total ≥320ms=step+lookahead else server replies `{}` and defers) → string `"YOUDAO_ONETIME_ASR_STREAM_EOS"` → server finalizes → sends final JSON → closes.
+- Header: `{channels:1, sample_rate:16000, requestId:<uuid>, language:"English", use_vad:false, secret_key:"test0102", mode:"slow"}`. secret_key REQUIRED (hardcoded debug list in server). `language:"zhen"`→None (auto zh+en).
+- Replies: `{"status":"success","requestId":...,"msg":{"text":<incremental>,"reset":false,...}}`. Chunks stream every 160ms; empty text = silence chunk.
+- Server internals: CHUNK_ASR_SIZE=2560 samples (160ms); first fed chunk 5120 samples (step+lookahead); Sanic, single_process=True, fork start method; VAD model always loaded (FireRedVAD); per-chunk vLLM call with dynamic max_new_tokens 4..32; hallucination repetition detection + soft/hard resets.
+- hypr-input patch (this fork; marked `# patched`): `gpu_memory_utilization=float(env GPU_MEM_UTIL|0.55)`, `max_model_len=int(env MAX_MODEL_LEN|8192)`, `max_num_batched_tokens=2048`, `max_new_tokens=1024` (was 1 — transcribe() offline decode uses self.sampling_params default); EOS handler: offline re-decode of `full_pcm_list` (per-connection PCM accumulation) via `asr_model.transcribe()`, full text sent as final `reset:true` message, fallback to upstream `finish_streaming_transcribe_no_reset` on exception. Rationale: streaming finish never emits terminal punctuation (LSP append-only design; upstream example.py identical); offline decode does (verified: 'The answer is yes.').
+- KV math: ~113KiB/token; upstream max_model_len=65536 needs 7GiB KV → boot fails on shared 16GB GPU. 8192 → ~0.93GiB.
+
+## Client internals (whisperless)
+
+- Toggle: pidfile `$XDG_RUNTIME_DIR/whisperless.pid`; running → SIGTERM (stop); else spawn `--worker` detached (start_new_session, stdout/err → logfile). Worker writes pidfile, removes it in finally/except. SIGTERM/SIGUSR1/SIGINT → stop event.
+- Stream: connect ws (open_timeout 5, max_size=None, ping disabled server-side) → header → spawn `pw-record --rate 16000 --channels 1 --format s16 [--target MIC_TARGET] --raw -` (fallback `arecord -q -f S16_LE -r 16000 -c 1 -t raw -`) → send loop: `wait_for(audio.read(6400), 0.5)` (200ms blocks; TimeoutError continue) until stop/EOF/MAX_SECS deadline (default 120s).
+- Stop path: sleep(GRACE=0.25) → terminate recorder (guard ProcessLookupError) → drain stdout `read()` to EOF (wait_for 2s) → send tail → send EOS → wait receiver ≤15s → kill recorder (guard ProcessLookupError). Rationale: pipe backlog holds up to ~0.5s audio; grace tail flushes server-side partial chunk (<160ms discarded at EOS).
+- Receive: incremental `msg.text` append; `msg.reset:true` = full transcript REPLACEMENT (patched server semantics; VAD resets would also use it). Type via `type_text`.
+- type_text: `time.sleep(SETTLE=0.15)` first (WM modifier race: injected keys merge with held SUPER → triggers compositor binds; delay outlasts release). Typer chain: wayland (WAYLAND_DISPLAY/SWAYSOCK): wtype→ydotool; X11: ydotool→xdotool (`--clearmodifiers`); `TYPER=` pins one. First rc==0 wins; none → notify failure. Appends trailing space per TRAILING_SPACE.
+- Border feedback (Hyprland only, BORDER=1, hyprctl present): on start `borders_on()` saves `hyprctl -j getoption general:col.active_border/inactive_border` gradients to `$XDG_RUNTIME_DIR/whisperless.borders.json`, sets BORDER_COLOR/BORDER_INACTIVE_COLOR via `hyprctl eval 'hl.config({ general = { col = { active_border = "..." , inactive_border = "..." } } })'`. On end (finally) `borders_off()` restores. **Color conversion: getoption gradient = `AARRGGBB 0deg`; hl.config wants `rgba(RRGGBBAA)`; 8-hex token → `rgba(tok[2:]+tok[:2])`; bare `0` token → `rgba(00000000)` (transparent); multi-stop gradients degrade to first stop (logged).** Requires single-color 0deg gradients for exact restore. Silent no-op without hyprctl.
+- Errors: worker logs `type(e).__name__` + full traceback to `~/.cache/whisperless.log`; notify body = str(e) or type name.
+
+## Server side (r2t2 checkout)
+
+- `~/apps/r2t2/Confucius4-R2T2`: clone (--depth 1) + `.venv` (uv, python 3.12) + `uv pip install -e .` (pulls qwen-asr[vllm]→vLLM, librosa, sanic, fireredvad) + `models/Confucius4-R2T2` (13 HF files, 3.9GB) + `checkpoints/vad/Stream-VAD` (2.2MB).
+- Unit exec: `.venv/bin/python ws_server.py -m models/Confucius4-R2T2 -ip BIND_IP -p PORT` (also `-s` save-audio flag exists; `-ip 127.0.0.1` default from config).
+- Boot: VAD load ~1s → vLLM engine (~30s warm, ~115s cold incl CUDA graph capture) → warmup (zero-audio, zh+en) → journal line "warmup complete" → "Worker ready". Port binds early; model None until warmup done → clients connecting early get close code 1011.
+- Restart on failure (RestartSec=10). VRAM at 0.55: ~8.7GB service + desktop ~3.2GB on 16.3GB card.
+- Offline decode probe: `offline_probe.py <wav> [lang]` (needs service stopped; same engine params; spawn quirk: must run from file, not stdin heredoc).
+
+## Install steps (S1-S9)
+
+- S1 preflight+deps; S2 config (copy if missing → source; merge new keys from package conf into existing; defaults for missing keys; prompts for SERVER_DIR + HOTKEY when TTY, `HOTKEY=` env overrides; `set_key` preserves trailing comments — uses grep -qF check because ERE `+` in "SUPER + K" breaks naive match); S3 clone+venv (skip if `import r2t2` works); S4 copy patched server; S5 model download via `.venv/bin/hf` (fallback huggingface-cli), `--local-dir`, resumes; S6 client install (shebang rewrite: `head -1` replaced with venv python, `tail -n +2` body); S7 render unit via sed on `@SERVER_DIR@` etc. (%h form = SERVER_DIR with $HOME→%h), daemon-reload, enable --now, restart, wait "warmup complete" in journalctl **filtered by --since ActiveEnterTimestamp (stale matches otherwise)**, 60×5s max; S8 smoke test; S9 bind.
+- S9: `detect_wm` → WM config override | hyprctl|swaymsg|i3-msg presence | XDG_CURRENT_DESKTOP lowercase. Hyprland: lua `hl.bind("CTRL + space", hl.dsp.exec_cmd("whisperless"))` in hyprland.lua (or `.conf` syntax `bind = CTRL, space, exec, whisperless`); comment prefix per format — **lua requires `--` NOT `#`** (`#` = lua syntax error → hyprctl reload silently rejects ENTIRE config, all binds vanish). sway/i3: `bindsym $mod+k exec whisperless` (wmkey: lowercase, strip spaces, leading super→$mod) in `~/.config/sway/config` / `~/.config/i3/config`; reload swaymsg/i3-msg. Other WMs: printed instructions. `insert_bind` always: backup `.bak.whisperless` → sed-delete whisperless lines → normalize trailing newlines (`printf '%s\n' "$(cat f)" > f`) → append comment+line. `replace_hyprvoice`: deletes `hyprvoice-toggle` bind lines (replacement semantics).
+- Config merge loop: keys = `grep -oE '^[A-Z_]+=' whisperless.conf`; append missing (ensure trailing newline first — a no-trailing-newline file glues appends). `set_key` preserves trailing comment via 2-step sed + grep -qF verification.
+
+## Operations
+
+- Status: `systemctl --user status whisperless`; logs: `journalctl --user -u whisperless -f`; client log: `tail -f ~/.cache/whisperless.log` (chunk-level `+'text'` lines, `typed via <typer>`, errors+tracebacks).
+- Restart: `systemctl --user restart whisperless` (after config/server-file changes; ~30s warm, 2min cold).
+- Pipeline test (no mic): `~/.local/bin/whisperless --test file.wav` — wav must be 16kHz mono s16le (repo `resources/test.wav` qualifies). Prints `TRANSCRIPT: '...'`; does NOT type.
+- Manual toggle: run `whisperless` (start; notification + red border), run again (stop+type). Direct: `whisperless --worker [wav]`.
+- Package source dir and install are decoupled; reinstall = `SKIP_MODELS=1 ./install.sh` (~1-2min).
+
+## Failure catalog (all encountered+fixed)
+
+- `ProcessLookupError` from asyncio transport on `proc.kill()` after `terminate()` (recorder already dead) → guarded both + `wait()`. Symptom was: random "voice-input failed" with EMPTY notify body (str(e)='').
+- Missing last words at stop → pipe+reader backlog never forwarded → drain-to-EOF + GRACE tail. Server also discards final partial chunk (<160ms) at EOS — grace audio flushes it.
+- WM shortcuts firing during typing → injected keysx merge with held/logically-stuck SUPER (wtype on Hyprland known issue) → SETTLE_DELAY 0.15s before injection.
+- Missing terminal punctuation: inherent to streaming finish (LSP append-only; NOT fixable by feeding tail or bigger finish token budget) → offline re-decode at EOS.
+- vLLM boot failure "7.0 GiB KV cache needed > 0.2 GiB available" → gpu_memory_utilization too low AND max_model_len 65536; fix = both knobs (config).
+- `#` comment lines in hyprland.lua = lua syntax error → `hyprctl reload` returns "ok" but silently drops ENTIRE config (all binds gone). Lua comments must be `--`.
+- `hyprctl -j binds` exposes numeric dispatcher IDs only, NO command strings — cannot filter binds by command; filter by key+modmask (SUPER=64, SHIFT=+1, CTRL=4, ALT=8).
+- `hyprctl eval hl.config(...)` rejects gradient strings ("ff33ccff 0deg") and "rgba(...) 0deg" — plain rgba(RRGGBBAA) only.
+- KeyboardInterrupt-style stale journal matches: waiting for "warmup complete" MUST filter journalctl by --since unit ActiveEnterTimestamp or old boots match instantly.
+- Blackwell (RTX 50xx, sm_120) requires vLLM ≥0.8.5-class builds; repo resolves vLLM 0.14.0 — OK. Driver 610.57 verified.
+- espeak TTS test clips: robotic prosody → model mishears ("Hyprland"→"Hyperlend"); not an ASR bug.
+
+## Config keys reference
+
+- SERVER_DIR: checkout+venv+models root (must be under $HOME; rendered as %h in unit). PORT=8272. BIND_IP=127.0.0.1 (loopback only). GPU_INDEX=0. GPU_MEM_UTIL=0.55 (vLLM fraction; 0.95 upstream breaks shared GPUs). MAX_MODEL_LEN=8192. HOTKEY lua syntax "CTRL + space" (converted: .conf "CTRL, space"; sway/i3 lowercase+nospace, leading super→$mod). VOICE_LANG English|Chinese|zhen(auto zh+en)|... MAX_SECS=120. SETTLE_DELAY=0.15. GRACE_TAIL=0.25. TRAILING_SPACE=1. NOTIFY=1. MIC_TARGET (pw-record only; arecord ignores). TYPER auto|wtype|ydotool|xdotool. WM auto|hyprland|sway|i3|other. BORDER/BORDER_COLOR/BORDER_INACTIVE_COLOR.
+- Client keys read live per run; server keys baked into unit (re-run install.sh). Old configs auto-merged (missing keys appended from package conf).
+
+## Migration (0.1.0 hypr-input → whisperless)
+
+- install.sh: disables+removes legacy `~/.config/systemd/user/r2t2.service`; moves `~/.config/hypr-input` → `~/.config/whisperless` (if target absent). uninstall.sh removes both service names, both client names (`whisperless`/`voice-input`), bind lines matching either name.
+
+## Verified environment
+
+- Arch-like, Hyprland 0.56.2 (lua config `hl.bind`/`hl.config` API; hyprland.conf deprecated), PipeWire, kernel-level: RTX 5070 Ti 16GB (sm_120), driver 610.57, vLLM 0.14.0, python 3.12.14 (uv-managed), systemd user session.
+- Verified transcript examples: espeak EN → "The quick brown fox jumps over the lazy dog. Hyperlend voice input is working" (TTS artifact); repo test.wav (zh) → "之前有顾客自己带酒水，也没加收钱或者不让喝。"; question wav → "What time is it? Is this working? The answer is yes."

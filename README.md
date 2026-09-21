@@ -187,6 +187,7 @@ border feature is silently skipped.
 | `whisperless.service` | systemd user unit template (rendered from config at install) |
 | `server/ws_server.py` | canonical patched server, copied over the upstream clone |
 | `offline_probe.py` | diagnostic: offline decode of a wav on the same engine |
+| `llms.txt` | machine-readable project reference for LLM agents (dense; not for humans) |
 
 Runtime paths: `~/apps/r2t2/Confucius4-R2T2/` (checkout, `.venv`, `models/`,
 `checkpoints/vad/`), `~/.config/systemd/user/whisperless.service`,
