@@ -98,6 +98,7 @@ the whole utterance offline.
 - Text injector: `wtype` (Wayland) or `ydotool` or `xdotool` (X11) — at least one;
   the installer installs `wtype` if none is present
 - Mic capture: PipeWire (`pw-record`) or ALSA (`arecord`)
+- Optional: `playerctl`, to pause playing media while recording (`PAUSE_MEDIA=1`)
 - NVIDIA GPU: ~7GB VRAM measured floor (`GPU_MEM_UTIL=0.42`); the default config
   holds ~9.4GB (fine on a 16GB card alongside a desktop; 8GB cards work with
   `GPU_MEM_UTIL≈0.40` and `MAX_MODEL_LEN=4096`, untested)
@@ -166,9 +167,10 @@ WM=auto                    # bind target: auto | hyprland | sway | i3 | other
 BORDER=1                   # Hyprland: focused-window border turns red while recording
 BORDER_COLOR="rgba(ff3333ff)"          # active border while recording
 BORDER_INACTIVE_COLOR="rgba(ff333355)" # inactive borders while recording
+PAUSE_MEDIA=1              # pause playing media (MPRIS, needs playerctl) while recording
 ```
 
-Client-side values (`VOICE_LANG`…`BORDER_INACTIVE_COLOR`) apply on the next
+Client-side values (`VOICE_LANG`…`PAUSE_MEDIA`) apply on the next
 dictation. Server-side values (`PORT`, `GPU_*`) need `./install.sh` re-run (it
 re-renders the unit and restarts the service).
 
@@ -207,10 +209,10 @@ selects the PipeWire source; `MIC_TARGET=60`-style ids don't map to ALSA devices
 
 1. Focus any text field
 2. Press `CTRL+space` → notification confirms recording, the focused window's
-   border turns red (Hyprland, `BORDER=1`)
+   border turns red (Hyprland, `BORDER=1`), playing media pauses (`PAUSE_MEDIA=1`)
 3. Speak
 4. Press `CTRL+space` again → the punctuated transcript is typed, the border
-   restores, a notification shows the text
+   restores, paused media resumes, a notification shows the text
 
 Recording auto-stops after `MAX_SECS`. Rapid double-presses are safe (toggle uses a
 pidfile + signals, not press/release binds). The stop keeps capturing a short grace
@@ -225,6 +227,11 @@ at the end (exact for single-color 0° gradients; multi-stop gradients degrade t
 their first stop, logged). `BORDER=0` disables it. On non-Hyprland compositors the
 border feature is silently skipped.
 
+Media pause asks `playerctl` which MPRIS players (browser tabs, Spotify, mpv…) are
+playing at recording start, pauses those, and resumes only those at the end — media
+you had paused yourself stays paused. `PAUSE_MEDIA=0` disables it; without
+`playerctl` it is silently skipped.
+
 ## Files
 
 | Path | Role |
@@ -236,6 +243,8 @@ border feature is silently skipped.
 | `server/ws_server.py` | canonical patched server, copied over the upstream clone |
 | `offline_probe.py` | diagnostic: offline decode of a wav on the same engine |
 | `llms.txt` | machine-readable project reference for LLM agents (dense; not for humans) |
+| `docs/configuration-guide.html` | configuration guide for humans (styled reference manual) |
+| `docs/configuration-guide.md` | same guide in plain Markdown |
 
 Runtime paths: `~/apps/r2t2/Confucius4-R2T2/` (checkout, `.venv`, `models/`,
 `checkpoints/vad/`), `~/.config/systemd/user/whisperless.service`,
@@ -296,6 +305,18 @@ over the clone. Applied changes (also marked `# patched` inline):
    the streaming finish on error).
 3. **Unit environment** — `PYTHONUNBUFFERED=1` (their debug prints are otherwise
    swallowed by journal buffering).
+4. **Finalize sanitization** — the offline re-decode emits R2T2 structural
+   markers (a trailing `|` when the audio ends mid-sentence, sometimes
+   newlines); `sanitize_offline_text()` strips them, because typed verbatim a
+   `\n` becomes a Return keypress (sends chat messages). The finalize also
+   passes the request's `context` so it matches the streaming decode.
+5. **Config-driven engine** — decode/engine/VAD knobs are env-configurable
+   (`CHUNK_SIZE_MS`, `LOOKAHEAD_MS`, `UNFIX_TOKEN_NUM`, `ROLLBACK_PUNCTUATION`,
+   `MAX_NEW_TOKENS`, `TEMPERATURE`/`REPETITION_PENALTY`, `MAX_NUM_SEQS`,
+   `KV_CACHE_DTYPE`, `MAX_NUM_BATCHED_TOKENS`, `VAD_*`); VAD detection is
+   skipped when the client disables it (upstream always ran `detect_chunk` and
+   ignored the result), and streaming calls pass `rollback_punctuation`
+   explicitly (upstream passed `nmt_fast` positionally into that parameter).
 
 Client consequence: `reset:True` messages replace the accumulated text.
 

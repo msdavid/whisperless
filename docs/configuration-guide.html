@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whisperless — Configuration Guide</title>
+<style>
+  :root {
+    --bg: #faf9f7;
+    --panel: #ffffff;
+    --ink: #1f2430;
+    --muted: #5c6577;
+    --line: #e6e3dd;
+    --accent: #b3402a;
+    --accent-soft: #fbeee9;
+    --ok: #2c7a4b;
+    --ok-soft: #e7f3ec;
+    --warn: #8a6d1d;
+    --warn-soft: #f7efd8;
+    --chip: #eef0f4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+  }
+  .layout { display: flex; max-width: 1180px; margin: 0 auto; }
+  nav {
+    width: 240px; flex: none; position: sticky; top: 0;
+    height: 100vh; padding: 36px 8px 40px 28px; overflow-y: auto;
+    border-right: 1px solid var(--line);
+  }
+  nav .brand { font-size: 19px; font-weight: bold; margin-bottom: 2px; }
+  nav .brand-sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+  nav a {
+    display: block; color: var(--muted); text-decoration: none;
+    padding: 5px 10px; border-radius: 7px; font-size: 14.5px;
+    font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  }
+  nav a:hover { background: var(--accent-soft); color: var(--accent); }
+  main { flex: 1; padding: 36px 44px 90px; min-width: 0; }
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  .lede { color: var(--muted); font-size: 16.5px; max-width: 62ch; }
+  h2 {
+    font-size: 21px; margin: 46px 0 4px; padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  h2 .no { color: var(--accent); margin-right: 8px; font-size: 15px; }
+  .section-note { color: var(--muted); font-size: 15px; max-width: 66ch; margin: 2px 0 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 22px 16px; margin: 0 0 14px; max-width: 78ch;
+  }
+  .card h3 {
+    margin: 0; font-family: "SF Mono", ui-monospace, "Cascadia Code", monospace;
+    font-size: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  }
+  .card h3 .code { color: var(--accent); }
+  .badge {
+    font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 99px;
+  }
+  .badge.default { background: var(--chip); color: var(--muted); }
+  .badge.next { background: var(--ok-soft); color: var(--ok); }
+  .badge.rerun { background: var(--warn-soft); color: var(--warn); }
+  .card p { margin: 8px 0 0; font-size: 15.5px; max-width: 70ch; }
+  .card .when { color: var(--muted); }
+  .card .try {
+    font-family: "SF Mono", ui-monospace, monospace; font-size: 13.5px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+    padding: 3px 9px; display: inline-block; margin-top: 8px;
+  }
+  .callout {
+    background: var(--accent-soft); border-radius: 12px; padding: 14px 20px;
+    max-width: 78ch; font-size: 15px; margin: 14px 0;
+  }
+  .callout b { color: var(--accent); }
+  code.inl {
+    font-family: "SF Mono", ui-monospace, monospace; font-size: 13.5px;
+    background: var(--chip); padding: 1px 6px; border-radius: 5px;
+  }
+  table.recipes { border-collapse: collapse; max-width: 78ch; font-size: 15px; }
+  table.recipes th, table.recipes td {
+    text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.recipes th { font-family: "SF Pro Text", system-ui, sans-serif; font-size: 12.5px;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  footer { color: var(--muted); font-size: 13.5px; margin-top: 60px; }
+  @media (max-width: 900px) {
+    .layout { flex-direction: column; }
+    nav { position: static; width: auto; height: auto; border-right: 0;
+      border-bottom: 1px solid var(--line); padding: 20px; }
+    main { padding: 26px 20px 60px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <div class="brand">🎙 Whisperless</div>
+  <div class="brand-sub">Configuration guide</div>
+  <a href="#start">Start here</a>
+  <a href="#changing">How to change a setting</a>
+  <a href="#basic">Everyday settings</a>
+  <a href="#accuracy">Accuracy &amp; word choice</a>
+  <a href="#typing">Typing &amp; timing</a>
+  <a href="#mic">Microphone &amp; media</a>
+  <a href="#looks">Looks &amp; feedback</a>
+  <a href="#engine">AI engine tuning</a>
+  <a href="#vad">Voice detection (VAD)</a>
+  <a href="#server">Where the AI lives</a>
+  <a href="#recipes">Common recipes</a>
+</nav>
+<main>
+
+<h1>Every knob, explained in plain English</h1>
+<p class="lede">Whisperless turns your voice into typed text. All of its settings live in one
+file — <code class="inl">~/.config/whisperless/config.conf</code> — and this guide explains
+what each one does, when you might want to touch it, and what changing it costs you.
+No systems knowledge required: if a word like "KV cache" shows up, it comes with a
+translation.</p>
+
+<h2 id="start"><span class="no">§</span>Start here</h2>
+<p class="section-note">The one-minute mental model. Whisperless has two parts: a
+<b>listener</b> (the app you trigger with your hotkey) and an <b>AI brain</b> (a speech
+recognition engine that runs on your computer's graphics card). The settings in this guide
+mostly fall into two buckets — things about <em>you and your keyboard</em>, and things about
+<em>the AI brain</em>.</p>
+<div class="callout">
+<b>How changes take effect:</b> settings marked <span class="badge next">next dictation</span>
+apply the moment you start your next recording — just edit and go. Settings marked
+<span class="badge rerun">re-run installer</span> are copied into the AI brain's startup
+configuration when the installer runs, so after editing you must re-run
+<code class="inl">./install.sh</code> once (it copies the new values and restarts the brain
+for you). For that reason, restarting the brain on its own — for example with
+<code class="inl">systemctl --user restart whisperless</code> — is not enough: it would come
+back with the old values still copied in.
+</div>
+
+<h2 id="changing"><span class="no">§</span>How to change a setting</h2>
+<div class="card">
+<h3><span class="code">~/.config/whisperless/config.conf</span></h3>
+<p>Open that file in any text editor. Every setting is one line that looks like
+<code class="inl">KEY=value</code>, and the lines starting with <code class="inl">#</code> are
+explanations you can ignore or rewrite. Edit a value, save the file, and apply it as described
+above. If you ever break the file, deleting it and re-running
+<code class="inl">./install.sh</code> rebuilds it with factory defaults.</p>
+</div>
+
+<h2 id="basic"><span class="no">§</span>Everyday settings</h2>
+<p class="section-note">The handful you're most likely to ever touch.</p>
+
+<div class="card">
+<h3><span class="code">HOTKEY</span> <span class="badge default">default CTRL + space</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The key combination you press to start recording, and press again to stop and get your text.
+Use any combination your keyboard has, written like <code class="inl">SUPER + K</code> (SUPER
+is the Windows/⌘ key) or <code class="inl">CTRL + space</code>.</p>
+<p class="when">When to change: if the current combo collides with a shortcut you use in other
+apps (for example, CTRL+space starts autocomplete in some code editors). After changing, the
+installer moves the binding for you.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">MAX_SECS</span> <span class="badge default">default 120</span> <span class="badge next">next dictation</span></h3>
+<p>A safety stop: if a recording somehow keeps going, it is finalized after this many seconds
+and your text appears anyway. It exists so a forgotten recording can't run forever.</p>
+<p class="when">When to change: only if you regularly dictate longer monologues than two
+minutes. Raise it to, say, <code class="inl">300</code>. Lower it if you want a forcing
+function for shorter thoughts.</p>
+</div>
+
+<h2 id="accuracy"><span class="no">§</span>Accuracy &amp; word choice</h2>
+<p class="section-note">Settings that change <em>what the AI writes down</em>. These are the
+highest-value knobs for everyday use.</p>
+
+<div class="card">
+<h3><span class="code">CONTEXT</span> <span class="badge default">default (empty)</span> <span class="badge next">next dictation</span></h3>
+<p>A cheat-sheet you hand to the AI before it listens: names, product names, jargon, or the
+topic you're about to discuss. Speech models are surprisingly good at English in general but
+regularly mangle words that aren't in their vocabulary — company names, people's names,
+acronyms. This setting tells the model what to expect, and it will favor those words when the
+audio is ambiguous.</p>
+<p>Write anything helpful, up to a few paragraphs. Real example: if you keep getting
+<i>"Raffinate"</i> when you say <i>Refinitiv</i>, set
+<code class="inl">CONTEXT=Refinitiv, FST, Celerris, Hamish</code>.</p>
+<p class="when">When to change: whenever you notice the same wrong word appearing repeatedly,
+or before a call/project full of specialized terms. Empty is perfectly fine for casual chat.</p>
+<span class="try">CONTEXT=Refinitiv, FST, Celerris, Hamish</span>
+</div>
+
+<div class="card">
+<h3><span class="code">VOICE_LANG</span> <span class="badge default">default English</span> <span class="badge next">next dictation</span></h3>
+<p>Which language you'll be speaking. You can name one language, or use
+<code class="inl">zhen</code> for automatic Chinese-and-English mixing (handy if you switch
+mid-sentence).</p>
+<p class="when">When to change: when you dictate in a different language, or mix Chinese and
+English. Telling the model the language removes its need to guess — usually more accurate,
+occasionally worse if you actually switch languages.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">SMOOTH</span> <span class="badge default">default off</span> <span class="badge next">next dictation</span></h3>
+<p>A one-word instruction to the AI: <i>"smooth the text"</i> — tidy it up, polish phrasing.
+Useful if you speak in fragments and want cleaner sentences out.</p>
+<p class="when">When to change: try <code class="inl">SMOOTH=1</code> if you want dictation
+that reads like prose. Turn it off if you need a faithful, word-for-word transcript.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">USE_VAD</span> <span class="badge default">default off</span> <span class="badge next">next dictation</span></h3>
+<p>Turns on a <i>pause detector</i>. While you dictate, it notices when you stop talking for a
+moment and commits the words so far as a finished sentence — like the pause between paragraphs
+being turned into a period. Everything still appears in order; the text just gets "banked" in
+chunks instead of one blob at the end.</p>
+<p class="when">When to change: try it if you dictate long stretches and want the on-screen
+text to feel more settled. Leave it off if you pause a lot mid-sentence (a pause would then
+cut your sentence in the live view — your final text is still re-checked at the end, but the
+live text may look jumpy).</p>
+</div>
+
+<div class="card">
+<h3><span class="code">ROLLBACK_PUNCTUATION</span> <span class="badge default">default off</span> <span class="badge rerun">re-run installer</span></h3>
+<p>Behind the scenes, the AI keeps the last few words "in pencil" and can still rewrite them as
+it hears more. This setting says: once a sentence ends with punctuation, stop rewriting the
+words before it — lock them in pen.</p>
+<p class="when">When to change: experiment. It can make the live text steadier and reduce
+endless small revisions, at a small risk of locking in a mistake the model would otherwise
+have fixed. <span class="badge rerun">re-run installer</span> to apply.</p>
+</div>
+
+<h2 id="typing"><span class="no">§</span>Typing &amp; timing</h2>
+<p class="section-note">Your finished text has to be "typed" into whatever app you're using,
+by pressing virtual keys. These settings control that last step.</p>
+
+<div class="card">
+<h3><span class="code">TYPER</span> <span class="badge default">default auto</span> <span class="badge next">next dictation</span></h3>
+<p>Which helper program actually presses the virtual keys: <code class="inl">wtype</code>,
+<code class="inl">ydotool</code>, or <code class="inl">xdotool</code>. They do the same job on
+different desktop systems; <code class="inl">auto</code> picks the right one for yours and
+falls back to the next if one fails.</p>
+<p class="when">When to change: almost never. Pin one only if you have a specific reason — for
+example, a program that ignores one helper's keypresses but accepts another's.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">SETTLE_DELAY</span> <span class="badge default">default 0.15 seconds</span> <span class="badge next">next dictation</span></h3>
+<p>A short breath before the virtual keys are pressed. Your hotkey includes a modifier key
+(like CTRL), and the computer needs a blink of an eye to register that you let go — otherwise
+the typed text could arrive while the system still thinks CTRL is held, triggering other
+shortcuts.</p>
+<p class="when">When to change: only if you see stray behavior right when text appears (wrong
+menus opening, characters swallowed). Try <code class="inl">0.3</code>. Lower values make
+text appear marginally sooner.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">GRACE_TAIL</span> <span class="badge default">default 0.25 seconds</span> <span class="badge next">next dictation</span></h3>
+<p>After you press stop, the microphone keeps listening for this long and adds what it hears.
+Your mouth is often still finishing the last word as your finger hits the key — this catches
+it.</p>
+<p class="when">When to change: if the last word of every dictation gets cut off, raise it
+(<code class="inl">0.4</code>). If you sometimes get a stray breath or "mm" appended, lower it
+(<code class="inl">0.1</code>).</p>
+</div>
+
+<div class="card">
+<h3><span class="code">TRAILING_SPACE</span> <span class="badge default">default on</span> <span class="badge next">next dictation</span></h3>
+<p>Types one space after your text, so when you continue by hand the next word doesn't glue
+itself to the last dictated word.</p>
+<p class="when">When to change: set <code class="inl">TRAILING_SPACE=0</code> if you find the
+extra space annoying, for example when dictating into fields that trim poorly or when ending
+sentences exactly.</p>
+</div>
+
+<h2 id="mic"><span class="no">§</span>Microphone &amp; media</h2>
+
+<div class="card">
+<h3><span class="code">MIC_TARGET</span> <span class="badge default">default (system default microphone)</span> <span class="badge next">next dictation</span></h3>
+<p>Which microphone to record from. Empty means "whatever the computer currently considers its
+default microphone" — usually exactly what you want, and it follows you when you plug in a
+headset.</p>
+<p class="when">When to change: if recordings pick up the wrong device (e.g. you want the
+laptop mic while a conference app grabs the headset). Find the number to put here by running
+<code class="inl">wpctl status</code> in a terminal — each source has an id, e.g.
+<code class="inl">MIC_TARGET=60</code>.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">PAUSE_MEDIA</span> <span class="badge default">default on</span> <span class="badge next">next dictation</span></h3>
+<p>While you dictate, any music or podcast that is currently playing politely pauses, and
+resumes when you're done. Only players you had <em>already paused yourself</em> stay paused.
+Works with Spotify, browsers, video players — anything that follows the standard media
+controls.</p>
+<p class="when">When to change: set <code class="inl">PAUSE_MEDIA=0</code> if you'd rather
+background music just keep playing, or if the pause/resume behavior annoys you.</p>
+</div>
+
+<h2 id="looks"><span class="no">§</span>Looks &amp; feedback</h2>
+
+<div class="card">
+<h3><span class="code">NOTIFY</span> <span class="badge default">default on</span> <span class="badge next">next dictation</span></h3>
+<p>Small desktop popups: "recording started", and a preview of the finished text. Your quiet
+confirmation that things worked.</p>
+<p class="when">When to change: <code class="inl">NOTIFY=0</code> for total silence.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">BORDER</span> <span class="badge default">default on</span> <span class="badge rerun">re-run installer</span></h3>
+<p>While recording, the outline of your active window turns red, so you can see at a glance
+whether you're being recorded — even on a different monitor. When you finish, your original
+outline colors are restored exactly.</p>
+<p class="when">When to change: <code class="inl">BORDER=0</code> if you find the red border
+distracting.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">BORDER_COLOR</span> and <span class="code">BORDER_INACTIVE_COLOR</span> <span class="badge default">red variants</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The recording color itself, for the window you're typing into and for the other windows.
+The format is <code class="inl">rgba(rrggbb aa)</code> — six digits for the color (like web
+colors), two extra digits at the end for transparency (00 invisible, ff solid).</p>
+<p class="when">When to change: pure taste. Example: a calmer amber —
+<code class="inl">BORDER_COLOR="rgba(ffaa33ff)"</code>.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">WM</span> <span class="badge default">default auto</span> <span class="badge rerun">re-run installer</span></h3>
+<p>Which desktop system you use, so the installer writes the hotkey binding in the right
+place. <code class="inl">auto</code> detects it.</p>
+<p class="when">When to change: only if detection ever picks wrong on an unusual setup.</p>
+</div>
+
+<h2 id="engine"><span class="no">§</span>AI engine tuning</h2>
+<p class="section-note">
+These control the AI brain that runs on your graphics card. Picture the brain as an office
+worker: <b>GPU memory</b> is desk space, and the <b>KV cache</b> — the term you'll see below —
+is the worker's notepad: short notes about everything heard so far, so it doesn't have to
+re-read the whole conversation for every new word. Bigger notepad = remembers more = more desk
+space needed. All of these are safe to leave at defaults; they're here so the brain can be
+squeezed onto a graphics card that's also running your desktop, games, or other AI work.
+<span class="badge rerun">re-run installer</span> applies to every setting in this section.</p>
+
+<div class="card">
+<h3><span class="code">GPU_MEM_UTIL</span> <span class="badge default">default 0.55</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The fraction of your graphics card's memory the AI brain claims when it starts — here, 55%.
+The rest stays free for your desktop, browser, and games. This is the single most important
+number for keeping the machine pleasant to use while dictation is available.</p>
+<p class="when">When to change: raise it (e.g. <code class="inl">0.7</code>) if dictation is
+the heavy workload and you want more headroom for long dictations; lower it if your desktop or
+games are starved. Too low and the brain refuses to start (it literally won't fit).</p>
+</div>
+
+<div class="card">
+<h3><span class="code">MAX_MODEL_LEN</span> <span class="badge default">default 8192</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The size of the notepad: how much "recent memory" the AI may keep at once, counted in word
+pieces (tokens). A token is roughly a syllable-to-word of speech. 8192 tokens needs about 1 GB
+of memory with this model — that's the sweet spot on a 16 GB card shared with a desktop.</p>
+<p class="when">When to change: raise it for very long dictations with the extra memory to
+spare; lower it (e.g. <code class="inl">4096</code>) to save roughly half a GB. Halving this
+number is the most effective way to free graphics memory.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">MAX_NUM_SEQS</span> <span class="badge default">default 8</span> <span class="badge rerun">re-run installer</span></h3>
+<p>How many recordings the brain will handle at the same time. Eight is generous for one
+person (you can literally only speak into one microphone at a time); the factory default of
+hundreds is for server farms. Setting it low reserves memory for the notepad instead of for
+imaginary second and third speakers.</p>
+<p class="when">When to change: leave it. Only raise it if several people on your network
+dictate at once — and note the default <code class="inl">BIND_IP</code> doesn't allow that
+anyway.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">KV_CACHE_DTYPE</span> <span class="badge default">default auto</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The precision of the notepad's handwriting. <code class="inl">auto</code> means full
+detail. <code class="inl">fp8</code> means "write in shorthand" — the notes take half the
+space, leaving room for a longer memory, with a tiny chance of slightly less accurate text on
+difficult audio.</p>
+<p class="when">When to change: try <code class="inl">fp8</code> when you want a bigger
+<code class="inl">MAX_MODEL_LEN</code> but can't afford the memory at full detail.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">MAX_NUM_BATCHED_TOKENS</span> <span class="badge default">default 2048</span> <span class="badge rerun">re-run installer</span></h3>
+<p>How much work the brain bundles into a single micro-second of computation. Small values
+make the running text update smoothly (nothing big blocks the pipeline); large values favor
+bulk efficiency. For one person dictating, small is right — 2048 is the tuned value.</p>
+<p class="when">When to change: don't, unless you're benchmarking. It interacts with
+<code class="inl">MAX_MODEL_LEN</code> in ways that can prevent startup.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">MAX_NEW_TOKENS</span> <span class="badge default">default 1024</span> <span class="badge rerun">re-run installer</span></h3>
+<p>When you press stop, the brain re-listens to the <em>entire</em> recording once more and
+writes the final, best version of your text. This is the word budget for that final pass.
+1024 tokens comfortably covers several minutes of speech.</p>
+<p class="when">When to change: raise it only if you dictate very long stretches and notice
+the final text coming out shorter than what you said. Costs nothing at rest.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">TEMPERATURE</span> <span class="badge default">default 0.0</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The AI's risk appetite when choosing words. 0 means "always pick the most likely word" —
+exactly what you want from a transcriptionist. Higher values make it creative, which is
+wonderful for writing poetry and terrible for dictation.</p>
+<p class="when">When to change: don't. This exists so you <em>can</em>, not because you
+should.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">REPETITION_PENALTY</span> <span class="badge default">default 1.0</span> <span class="badge rerun">re-run installer</span></h3>
+<p>A leash against one known AI failure mode: getting stuck in a loop and repeating the same
+phrase over and over. Values above 1.0 (try <code class="inl">1.1</code>) make repeats less
+likely. 1.0 means the leash is slack.</p>
+<p class="when">When to change: if you ever see the same phrase loop in the final text, set
+<code class="inl">1.1</code>. If proper nouns start coming out subtly wrong, go back to
+<code class="inl">1.0</code> — the leash can also suppress legitimately repeated words.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">CHUNK_SIZE_MS</span> <span class="badge default">default 160</span> <span class="badge rerun">re-run installer</span></h3>
+<p>How often the brain looks at the microphone: every 160 milliseconds it processes the latest
+slice and updates the live text. Smaller = snappier live text but more work for the graphics
+card (it re-reads its whole notepad each time). Values from 80 to 2000 are supported.</p>
+<p class="when">When to change: <code class="inl">320</code> halves the workload if the GPU is
+busy with something else; the live text just updates in bigger steps. Your final text quality
+doesn't change.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">LOOKAHEAD_MS</span> <span class="badge default">default 160</span> <span class="badge rerun">re-run installer</span></h3>
+<p>Extra audio shown to the brain alongside each slice, from slightly in the future — like
+reading a sentence with the next word visible before deciding the previous one. It prevents
+words from being committed wrong just because their ending hadn't arrived yet.</p>
+<p class="when">When to change: rarely. It trades a little latency (the live text lags this
+many milliseconds behind your voice) for accuracy.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">UNFIX_TOKEN_NUM</span> <span class="badge default">default 1</span> <span class="badge rerun">re-run installer</span></h3>
+<p>How many of the newest words stay "in pencil" — revisable as more audio arrives. More pencil
+words = the model can fix recent mistakes better, but the live text wobbles more. Fewer = more
+stable live text, more chance an early mishearing sticks.</p>
+<p class="when">When to change: experimentation territory. If you enjoy watching the live text
+and hate seeing it rewrite itself, try <code class="inl">0</code>.</p>
+</div>
+
+<h2 id="vad"><span class="no">§</span>Voice detection (VAD)</h2>
+<p class="section-note">These tune the pause detector described at
+<code class="inl">USE_VAD</code>. They only matter when <code class="inl">USE_VAD=1</code>.
+The detector listens in slices of one-hundredth of a second ("frames" — 10 milliseconds each),
+so a frame count is just a time in tenths-of-seconds: 8 frames = 80 ms, 20 frames = 200 ms.
+<span class="badge rerun">re-run installer</span> applies to all four.</p>
+
+<div class="card">
+<h3><span class="code">VAD_SPEECH_THRESHOLD</span> <span class="badge default">default 0.4</span> <span class="badge rerun">re-run installer</span></h3>
+<p>How convinced the detector must be that a slice contains a voice, on a scale from 0 to 1.
+Lower = more eager to call something speech (catches whispers, but may trigger on keyboard
+clatter); higher = stricter.</p>
+<p class="when">When to change: if segments cut off when you speak softly, lower it toward
+<code class="inl">0.3</code>; if it fires on background noise, raise toward
+<code class="inl">0.5</code>.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">VAD_MIN_SPEECH_FRAME</span> <span class="badge default">default 8 (= 80 ms)</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The shortest noise that counts as "you started talking". Anything shorter is treated as a
+cough or a click and ignored.</p>
+<p class="when">When to change: raise it if lip-smacks and breaths keep starting fake
+segments.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">VAD_MIN_SILENCE_FRAME</span> <span class="badge default">default 20 (= 200 ms)</span> <span class="badge rerun">re-run installer</span></h3>
+<p>How long you must stay silent before the detector decides the sentence is finished and
+banks the text so far. This is the "natural pause" length.</p>
+<p class="when">When to change: you habitually pause mid-sentence to think → raise it
+(<code class="inl">30</code> = 300 ms). You want sentences banked aggressively → lower it.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">VAD_MAX_SPEECH_FRAME</span> <span class="badge default">default 2000 (= 20 s)</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The longest a single unbroken stretch of talking may run before the detector banks it
+anyway, even without a pause. A pressure valve so one rambling minute doesn't pile up
+uncommitted.</p>
+<p class="when">When to change: lower it if you want text banked more often during continuous
+speech.</p>
+</div>
+
+<h2 id="server"><span class="no">§</span>Where the AI lives</h2>
+
+<div class="card">
+<h3><span class="code">SERVER_DIR</span> <span class="badge default">~/apps/r2t2/Confucius4-R2T2</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The folder on your computer where the AI brain (its program and the downloaded model, a few
+gigabytes) is installed.</p>
+<p class="when">When to modify: only if you deliberately move the installation — set the new
+path here before re-running <code class="inl">./install.sh</code>.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">PORT</span> <span class="badge default">default 8272</span> <span class="badge rerun">re-run installer</span></h3>
+<p>The "door number" the brain listens on, on your computer. Two programs can't share a door.</p>
+<p class="when">When to modify: only if another program on this machine already uses door
+8272 — then pick any free number between 1024 and 65535.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">BIND_IP</span> <span class="badge default">default 127.0.0.1</span> <span class="badge rerun">re-run installer</span></h3>
+<p><i>Who is allowed to knock on that door.</i> <code class="inl">127.0.0.1</code> is
+computer-speak for "only this very computer" — nobody on your Wi-Fi can reach your
+microphone-driven AI, which is exactly what you want for something that transcribes speech.
+</p>
+<p class="when">When to change: only if you deliberately want to dictate from another device
+on your home network — and understand you'd be sending voice over the network to this machine.
+Keep the loopback address unless you have that specific reason.</p>
+</div>
+
+<div class="card">
+<h3><span class="code">GPU_INDEX</span> <span class="badge default">default 0</span> <span class="badge rerun">re-run installer</span></h3>
+<p>Which graphics card to use, if you have several. 0 is the first one.</p>
+<p class="when">When to change: multi-GPU machines where card 0 is busy with something else
+(big AI workloads often grab card 0 first).</p>
+</div>
+
+<h2 id="recipes"><span class="no">§</span>Common recipes</h2>
+<p class="section-note">The settings above, arranged by what you're actually trying to do.</p>
+<table class="recipes">
+<tr><th>You want…</th><th>Do this</th></tr>
+<tr><td>Better accuracy on names and jargon</td>
+<td>Set <code class="inl">CONTEXT</code> to the names you use. This is the #1 fix. Takes
+effect next dictation.</td></tr>
+<tr><td>Dictate in another language / mix Chinese + English</td>
+<td>Change <code class="inl">VOICE_LANG</code>.</td></tr>
+<tr><td>Stop accidental "send" in chat apps</td>
+<td>Already fixed in the current version (stray Enter and <code class="inl">|</code>
+artifacts are stripped before typing). If you still see it, update via
+<code class="inl">./install.sh</code>.</td></tr>
+<tr><td>Free up graphics memory for games</td>
+<td>Lower <code class="inl">GPU_MEM_UTIL</code> (e.g. 0.45), or
+<code class="inl">MAX_MODEL_LEN=4096</code>, or both. Re-run the installer.</td></tr>
+<tr><td>Room for very long dictations</td>
+<td>Raise <code class="inl">MAX_SECS</code> (client-side) and, if memory allows,
+<code class="inl">MAX_MODEL_LEN</code> and <code class="inl">MAX_NEW_TOKENS</code>.</td></tr>
+<tr><td>Less GPU usage while the machine is busy</td>
+<td><code class="inl">CHUNK_SIZE_MS=320</code> — the live text just updates in bigger
+steps.</td></tr>
+<tr><td>Last word keeps getting cut off</td>
+<td>Raise <code class="inl">GRACE_TAIL</code> to 0.4.</td></tr>
+<tr><td>Text arrives with weird extra behavior when it appears</td>
+<td>Raise <code class="inl">SETTLE_DELAY</code> to 0.3 (the modifier-key "glue" issue).</td></tr>
+<tr><td>Wrong microphone is recorded</td>
+<td>Find its id with <code class="inl">wpctl status</code> and set
+<code class="inl">MIC_TARGET</code>.</td></tr>
+<tr><td>See if you're being recorded from across the room</td>
+<td>Keep <code class="inl">BORDER=1</code>; recolor with
+<code class="inl">BORDER_COLOR</code>.</td></tr>
+</table>
+
+<div class="callout" style="margin-top:34px">
+<b>Golden rule:</b> <code class="inl">CONTEXT</code> first. Every other knob on this page
+tunes mechanics; that one tunes understanding.
+</div>
+
+<footer>
+Whisperless configuration guide · generated from <code class="inl">whisperless.conf</code> ·
+client settings apply on your next dictation; settings marked
+<span class="badge rerun">re-run installer</span> need <code class="inl">./install.sh</code>.
+</footer>
+
+</main>
+</div>
+</body>
+</html>

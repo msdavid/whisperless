@@ -39,6 +39,17 @@ def _normalize_for_pattern(s: str) -> str:
     """Remove whitespace and punctuation, then lowercase for punctuation-insensitive repeat detection."""
     return _PUNCT_RE.sub("", s).lower()
 
+def sanitize_offline_text(text: str) -> str:
+    """Strip R2T2 structural markers from an offline transcript (patched).
+
+    The offline decode emits a trailing '|' (continuation marker) when the
+    audio ends mid-sentence, and may emit newlines between segments. Typed
+    verbatim, '\n' becomes a Return keypress — fatal in chat apps where
+    Enter sends. Replace markers with spaces and collapse whitespace.
+    """
+    text = text.replace("|", " ").replace("\r", " ").replace("\n", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
 def detect_and_fix_repetitions(text, threshold=5):
     def fix_char_repeats(s, thresh):
         res = []
@@ -199,11 +210,12 @@ current_file_dir = os.path.dirname(os.path.abspath(__file__))
 WAV_STORE_DIR = os.path.join(current_file_dir,"wav_tmp_store")
 os.makedirs(WAV_STORE_DIR, exist_ok=True)
 
-CHUNK_ASR_SECONDS = 0.16
+CHUNK_ASR_SECONDS = float(os.environ.get("CHUNK_SIZE_MS", "160")) / 1000.0  # patched: config-driven (80–2000 supported)
 CHUNK_ASR_SIZE = int(CHUNK_ASR_SECONDS * SAMPLING_RATE)
 STEP_MS = int(CHUNK_ASR_SECONDS * 1000)
-LOOKAHEAD_MS = 160
-UNFIX_TOKEN_NUM = 1
+LOOKAHEAD_MS = int(os.environ.get("LOOKAHEAD_MS", "160"))  # patched: config-driven
+UNFIX_TOKEN_NUM = int(os.environ.get("UNFIX_TOKEN_NUM", "1"))  # patched: config-driven
+ROLLBACK_PUNCTUATION = os.environ.get("ROLLBACK_PUNCTUATION", "0") == "1"  # patched: config-driven streaming prefix lock
 MAX_TOKENS=10
 
 ERROR_MSG_NO_HEADER = "json header is expected"
@@ -266,11 +278,11 @@ async def initialize_models(app):
     vad_config=FireRedStreamVadConfig(
         use_gpu=True,
         smooth_window_size=5,
-        speech_threshold=0.4,
+        speech_threshold=float(os.environ.get("VAD_SPEECH_THRESHOLD", "0.4")),  # patched: config-driven
         pad_start_frame=5,
-        min_speech_frame=8,
-        max_speech_frame=2000,
-        min_silence_frame=20,
+        min_speech_frame=int(os.environ.get("VAD_MIN_SPEECH_FRAME", "8")),  # patched: config-driven
+        max_speech_frame=int(os.environ.get("VAD_MAX_SPEECH_FRAME", "2000")),  # patched: config-driven
+        min_silence_frame=int(os.environ.get("VAD_MIN_SILENCE_FRAME", "20")),  # patched: config-driven
         chunk_max_frame=30000)
     
     stream_vad = FireRedStreamVad.from_pretrained(args.vad_model_path, vad_config)
@@ -281,13 +293,29 @@ async def initialize_models(app):
     logger.info(f"step2: Start loading ASR model from {args.asr_model_path}")
 
     # Streaming is vLLM-only and no forced aligner supported.
+    # Sampling knobs only affect paths that don't pass max_new_tokens — in this
+    # server that is transcribe() (offline finalize); streaming decodes always
+    # build their own SamplingParams(temperature=0.0, max_tokens=<dynamic>).
+    _max_new_tokens = int(os.environ.get("MAX_NEW_TOKENS", "1024"))
+    _temperature = float(os.environ.get("TEMPERATURE", "0.0"))
+    _repetition_penalty = float(os.environ.get("REPETITION_PENALTY", "1.0"))
     asr_model =  R2T2ASRModel.LLM(
         model=args.asr_model_path,
         gpu_memory_utilization=float(os.environ.get("GPU_MEM_UTIL", "0.55")),  # patched: 0.95 upstream needs the whole GPU
         max_model_len=int(os.environ.get("MAX_MODEL_LEN", "8192")),            # patched: 65536 upstream needs 7GiB KV cache
-        max_num_batched_tokens=2048, # patched: streaming chunks are tiny; lower profiling peak frees KV
-        max_new_tokens=1024,         # patched: was 1 — transcribe() (offline finalize) uses this as its default decode budget
+        max_num_batched_tokens=int(os.environ.get("MAX_NUM_BATCHED_TOKENS", "2048")), # patched: streaming chunks are tiny; lower profiling peak frees KV
+        max_num_seqs=int(os.environ.get("MAX_NUM_SEQS", "8")),                # patched: single-user; small cap frees VRAM for KV
+        kv_cache_dtype=os.environ.get("KV_CACHE_DTYPE", "auto"),              # patched: "fp8" halves KV (slight accuracy risk)
+        max_new_tokens=_max_new_tokens, # patched: was 1 — transcribe() (offline finalize) uses this as its default decode budget
     )
+    if _temperature != 0.0 or _repetition_penalty != 1.0:
+        from vllm import SamplingParams
+        asr_model.sampling_params = SamplingParams(
+            temperature=_temperature,
+            max_tokens=_max_new_tokens,
+            repetition_penalty=_repetition_penalty,
+            skip_special_tokens=True,
+        )
 
     logger.info("✅ ASR model initialized successfully")
 
@@ -308,7 +336,8 @@ async def initialize_models(app):
             _warmup_max_new_tokens = 2 * _warmup_max_new_tokens
         for _ in range(3):
             _dummy = np.zeros(CHUNK_ASR_SIZE, dtype=np.float32)
-            asr_model.streaming_transcribe(_dummy, _warmup_state, _warmup_max_new_tokens)
+            asr_model.streaming_transcribe(_dummy, _warmup_state, _warmup_max_new_tokens,
+                                           rollback_punctuation=ROLLBACK_PUNCTUATION)
         asr_model.finish_streaming_transcribe(_warmup_state, _warmup_max_new_tokens)
     logger.info("✅ ASR model warmup complete")
 
@@ -622,7 +651,7 @@ async def asr_stream_api_v0(request: Request, ws: Websocket):
                     speech_ended_in_this_chunk = False
                     vad_cost_ms = 0.0
                     finish_cost_ms = 0.0
-                    if True or use_vad:
+                    if use_vad:  # patched: skip VAD when the client disables it
                         audio_seg_int16 = (audio_seg * 32768).astype(np.int16)
                         t0 = time.time()
                         chunk_results = stream_vad.detect_chunk(audio_seg_int16)
@@ -635,7 +664,8 @@ async def asr_stream_api_v0(request: Request, ws: Websocket):
 
                     t0 = time.time()
                     text, fixed_asr_text = asr_model.streaming_transcribe(
-                        audio_seg, asr_state, int(max_new_tokens), nmt_fast
+                        audio_seg, asr_state, int(max_new_tokens),
+                        rollback_punctuation=ROLLBACK_PUNCTUATION  # patched: config-driven (was positional nmt_fast)
                     )
                     asr_cost_ms = round((time.time() - t0) * 1000, 1)
                     if len(fixed_asr_text) > len(last_fixed_asr_text):
@@ -1018,19 +1048,20 @@ async def asr_stream_api_v1(request: Request, ws: Websocket):
                             _res = asr_model.transcribe(
                                 audio=[(np.concatenate(full_pcm_list), SAMPLING_RATE)],
                                 language=[language if language else None],
+                                context=context,  # patched: bias the offline finalize like the stream
                                 return_time_stamps=False,
                             )
                             _final_full = _res[0].text.strip() if _res else ""
                         except Exception:
                             _logger.exception(f"requestId={requestId}: offline finalize failed; falling back to streaming finish")
                         if _final_full:
-                            text = _final_full
+                            text = sanitize_offline_text(_final_full)
                             out_msg = {"text": text, "reset": True}
                         else:
                             text = asr_model.finish_streaming_transcribe_no_reset(
                                 asr_state, first_max_new_tokens
                             )
-                            text = text.split("|")[0]
+                            text = sanitize_offline_text(text.split("|")[0])
                             if len(text) > len(last_fixed_asr_text):
                                 text = last_fixed_asr_text + text[len(last_fixed_asr_text):]
                             else:
@@ -1093,7 +1124,7 @@ async def asr_stream_api_v1(request: Request, ws: Websocket):
                     speech_ended_in_this_chunk = False
                     vad_cost_ms = 0.0
                     finish_cost_ms = 0.0
-                    if True or use_vad:
+                    if use_vad:  # patched: skip VAD when the client disables it
                         audio_seg_int16 = (audio_seg * 32768).astype(np.int16)
                         t0 = time.time()
                         chunk_results = stream_vad.detect_chunk(audio_seg_int16)
@@ -1106,7 +1137,8 @@ async def asr_stream_api_v1(request: Request, ws: Websocket):
 
                     t0 = time.time()
                     text, fixed_asr_text = asr_model.streaming_transcribe_no_reset(
-                        audio_seg, asr_state, int(max_new_tokens), nmt_fast
+                        audio_seg, asr_state, int(max_new_tokens),
+                        rollback_punctuation=ROLLBACK_PUNCTUATION  # patched: config-driven (was positional nmt_fast)
                     )
                     asr_cost_ms = round((time.time() - t0) * 1000, 1)
                     if len(fixed_asr_text) > len(last_fixed_asr_text):

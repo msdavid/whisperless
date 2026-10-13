@@ -155,6 +155,14 @@ HOTKEY="${HOTKEY:-SUPER + K}"; SERVER_DIR="${SERVER_DIR:-$HOME/apps/r2t2/Confuci
 HOTKEY="${ENV_HOTKEY:-$HOTKEY}"   # env override wins over config
 PORT="${PORT:-8272}"; BIND_IP="${BIND_IP:-127.0.0.1}"; GPU_INDEX="${GPU_INDEX:-0}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.55}"; MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
+# Engine tuning defaults for keys missing from very old configs
+CHUNK_SIZE_MS="${CHUNK_SIZE_MS:-160}"; LOOKAHEAD_MS="${LOOKAHEAD_MS:-160}"
+UNFIX_TOKEN_NUM="${UNFIX_TOKEN_NUM:-1}"; ROLLBACK_PUNCTUATION="${ROLLBACK_PUNCTUATION:-0}"
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1024}"; TEMPERATURE="${TEMPERATURE:-0.0}"
+REPETITION_PENALTY="${REPETITION_PENALTY:-1.0}"; MAX_NUM_SEQS="${MAX_NUM_SEQS:-8}"
+KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-auto}"; MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-2048}"
+VAD_SPEECH_THRESHOLD="${VAD_SPEECH_THRESHOLD:-0.4}"; VAD_MIN_SPEECH_FRAME="${VAD_MIN_SPEECH_FRAME:-8}"
+VAD_MAX_SPEECH_FRAME="${VAD_MAX_SPEECH_FRAME:-2000}"; VAD_MIN_SILENCE_FRAME="${VAD_MIN_SILENCE_FRAME:-20}"
 WM="${WM:-auto}"
 [[ "$PORT" =~ ^[0-9]+$ ]] || die "PORT must be numeric in $CONF_DIR/config.conf"
 case "$SERVER_DIR" in "$HOME"/*) ;; *) die "SERVER_DIR must be under \$HOME" ;; esac
@@ -232,6 +240,20 @@ sed -e "s|@SERVER_DIR@|$UNIT_DIR|g" \
     -e "s|@GPU_INDEX@|$GPU_INDEX|g" \
     -e "s|@GPU_MEM_UTIL@|$GPU_MEM_UTIL|g" \
     -e "s|@MAX_MODEL_LEN@|$MAX_MODEL_LEN|g" \
+    -e "s|@CHUNK_SIZE_MS@|$CHUNK_SIZE_MS|g" \
+    -e "s|@LOOKAHEAD_MS@|$LOOKAHEAD_MS|g" \
+    -e "s|@UNFIX_TOKEN_NUM@|$UNFIX_TOKEN_NUM|g" \
+    -e "s|@ROLLBACK_PUNCTUATION@|$ROLLBACK_PUNCTUATION|g" \
+    -e "s|@MAX_NEW_TOKENS@|$MAX_NEW_TOKENS|g" \
+    -e "s|@TEMPERATURE@|$TEMPERATURE|g" \
+    -e "s|@REPETITION_PENALTY@|$REPETITION_PENALTY|g" \
+    -e "s|@MAX_NUM_SEQS@|$MAX_NUM_SEQS|g" \
+    -e "s|@KV_CACHE_DTYPE@|$KV_CACHE_DTYPE|g" \
+    -e "s|@MAX_NUM_BATCHED_TOKENS@|$MAX_NUM_BATCHED_TOKENS|g" \
+    -e "s|@VAD_SPEECH_THRESHOLD@|$VAD_SPEECH_THRESHOLD|g" \
+    -e "s|@VAD_MIN_SPEECH_FRAME@|$VAD_MIN_SPEECH_FRAME|g" \
+    -e "s|@VAD_MAX_SPEECH_FRAME@|$VAD_MAX_SPEECH_FRAME|g" \
+    -e "s|@VAD_MIN_SILENCE_FRAME@|$VAD_MIN_SILENCE_FRAME|g" \
     "$PKG_DIR/whisperless.service" > "$HOME/.config/systemd/user/whisperless.service"
 systemctl --user daemon-reload
 systemctl --user enable --now whisperless.service

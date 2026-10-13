@@ -23,6 +23,7 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
 import uuid
 import wave
 from pathlib import Path
@@ -70,6 +71,9 @@ CFG = load_config()
 URI = f"ws://{CFG.get('BIND_IP', '127.0.0.1')}:{int(CFG.get('PORT', '8272'))}/asr_stream_api_v1"
 MAX_SECS = int(CFG.get("MAX_SECS", "120"))       # hard stop: auto-finalize after N seconds
 LANG_HINT = CFG.get("VOICE_LANG", "English")     # header language hint; "zhen" = auto zh+en
+CONTEXT = CFG.get("CONTEXT", "")                 # hotword/topic hint -> ASR system prompt (bias recognition)
+USE_VAD = CFG.get("USE_VAD", "0") == "1"         # server emits mid-stream segment finals on speech end
+SMOOTH = CFG.get("SMOOTH", "0") == "1"           # ask the model to smooth/normalize the text
 SETTLE = float(CFG.get("SETTLE_DELAY", "0.15"))  # pause before typing (WM modifier race)
 GRACE = float(CFG.get("GRACE_TAIL", "0.25"))     # extra capture after stop (last word)
 TRAILING_SPACE = CFG.get("TRAILING_SPACE", "1") == "1"
@@ -79,6 +83,7 @@ TYPER = CFG.get("TYPER", "auto")   # auto | wtype | ydotool | xdotool
 BORDER_ON = CFG.get("BORDER", "1") == "1"   # focused-window border turns red while recording (Hyprland)
 BORDER_ACTIVE = CFG.get("BORDER_COLOR", "rgba(ff3333ff)")
 BORDER_INACTIVE = CFG.get("BORDER_INACTIVE_COLOR", "rgba(ff333355)")
+PAUSE_MEDIA = CFG.get("PAUSE_MEDIA", "1") == "1"   # pause playing media while recording (playerctl)
 
 def notify(title, body=""):
     if not NOTIFY_ON:
@@ -133,7 +138,9 @@ def header():
         "sample_rate": SR,
         "requestId": str(uuid.uuid4()),
         "language": LANG_HINT,
-        "use_vad": False,
+        "use_vad": USE_VAD,
+        "smooth": SMOOTH,
+        "system_prompt": CONTEXT,
         "secret_key": "test0102",
         "mode": "slow",
     })
@@ -183,6 +190,7 @@ async def stream(source):
                             # patched server: the final reset message carries the FULL
                             # offline transcript — it replaces the streamed accumulation
                             if t:
+                                log(f"reset {t!r}")
                                 text_parts = [t]
                         elif t:
                             text_parts.append(t)
@@ -211,6 +219,16 @@ async def stream(source):
                 if not data:
                     break
                 await ws.send(data)
+            # why the stream ended: a stray toggle (SIGTERM) vs the recorder
+            # dying on its own vs the MAX_SECS deadline — the premature-stop
+            # trigger is otherwise invisible
+            if stop.is_set():
+                reason = "signal"
+            elif asyncio.get_event_loop().time() >= deadline:
+                reason = "max_secs"
+            else:
+                reason = "mic_eof"
+            log(f"stream end: {reason}")
             if source[0] == "mic":
                 # grace tail: keep capturing briefly so a word finishing after the
                 # keypress isn't clipped
@@ -242,13 +260,21 @@ async def stream(source):
         if source[0] == "mic":
             try:
                 proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
                 await proc.wait()
+                log(f"recorder rc={proc.returncode}")
             except ProcessLookupError:
                 pass
     return "".join(text_parts)
 
 def type_text(text):
-    text = text.strip()
+    # safety net against server version skew: R2T2 offline transcripts can
+    # carry a trailing '|' (continuation marker) and newlines; wtype types
+    # '\n' as Return, which sends chat messages
+    text = text.replace("|", " ").replace("\r", " ").replace("\n", " ")
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         notify("whisperless", "nothing heard")
         return
@@ -336,16 +362,43 @@ def borders_off():
     if not _hl_set(active or BORDER_ACTIVE, inactive or BORDER_INACTIVE):
         log("border restore: hl.config eval failed")
 
+def _playerctl(*args):
+    """playerctl stdout, or None on failure (a hung player must not stall dictation)."""
+    try:
+        r = subprocess.run(["playerctl", *args], capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+def media_pause():
+    """Pause the MPRIS players that are playing; returns them for media_resume()."""
+    if not PAUSE_MEDIA or not _have("playerctl"):
+        return []
+    out = _playerctl("-a", "status", "--format", "{{playerInstance}} {{status}}") or ""
+    playing = [line.split()[0] for line in out.splitlines() if line.endswith(" Playing")]
+    for player in playing:
+        _playerctl("-p", player, "pause")
+    if playing:
+        log(f"paused media: {' '.join(playing)}")
+    return playing
+
+def media_resume(players):
+    """Resume only what media_pause() paused (players the user had paused stay paused)."""
+    for player in players:
+        _playerctl("-p", player, "play")
+
 def worker(source):
     PIDFILE.write_text(str(os.getpid()))
     try:
         borders_on()
+        paused = media_pause()
         try:
             text = asyncio.run(stream(source))
             PIDFILE.unlink(missing_ok=True)
             type_text(text)
         finally:
             borders_off()
+            media_resume(paused)
     except Exception as e:
         PIDFILE.unlink(missing_ok=True)
         log(f"error: {type(e).__name__}: {e!r}\n{traceback.format_exc()}")

@@ -17,6 +17,19 @@ Modifications (also marked with `# patched` inline):
   * The EOS handler re-decodes the full utterance offline and returns the
     complete punctuated transcript (streaming finish never emits terminal
     punctuation), falling back to the streaming finish on error.
+  * The offline finalize passes the request's context prompt (so it matches
+    the streaming decode) and its output is sanitized: R2T2 emits a trailing
+    '|' continuation marker (and sometimes newlines) which must not be typed
+    verbatim (wtype renders \n as Return).
+  * Decode/engine/VAD knobs made environment-configurable: CHUNK_SIZE_MS,
+    LOOKAHEAD_MS, UNFIX_TOKEN_NUM, ROLLBACK_PUNCTUATION, MAX_NEW_TOKENS,
+    TEMPERATURE/REPETITION_PENALTY (finalize sampling), MAX_NUM_SEQS,
+    KV_CACHE_DTYPE, MAX_NUM_BATCHED_TOKENS, VAD_* (speech threshold and
+    speech/silence frame limits).
+  * VAD detection is skipped when the client disables it (upstream always ran
+    detect_chunk and ignored the result), and streaming calls pass
+    rollback_punctuation explicitly (upstream passed nmt_fast positionally
+    into that parameter).
   * Full-utterance PCM accumulation (full_pcm_list) for the offline finalize.
 
 These changes are provided under the Apache-2.0 license, consistent with the
