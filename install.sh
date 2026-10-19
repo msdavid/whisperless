@@ -92,11 +92,29 @@ pkgmap() {  # binary -> distro package name
   esac
 }
 
+# Key typer for apps the built-in input-method inserter can't reach (it needs no
+# package). KDE and GNOME offer no virtual-keyboard protocol, so wtype can't type
+# there — only ydotool (a uinput keyboard) does; X11 uses xdotool.
+session_type() {
+  if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = wayland ]; then echo wayland
+  elif [ -n "${DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = x11 ]; then echo x11
+  else echo unknown; fi   # e.g. installing over ssh
+}
+needs_ydotool() {
+  [ "$(session_type)" = wayland ] || return 1
+  case "$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')" in
+    *kde*|*plasma*|*gnome*) return 0 ;;
+  esac
+  return 1
+}
+
 missing=()
 for t in git curl notify-send; do
   have "$t" || missing+=("$t")
 done
-have wtype || have ydotool || have xdotool || missing+=("wtype")   # text injection
+if needs_ydotool; then have ydotool || missing+=("ydotool")        # text injection
+elif [ "$(session_type)" = x11 ]; then have xdotool || have ydotool || missing+=("xdotool")
+else have wtype || have ydotool || have xdotool || missing+=("wtype"); fi
 have pw-record || have arecord || missing+=("pw-record")           # mic capture
 if [ ${#missing[@]} -gt 0 ]; then
   info "installing missing system packages: ${missing[*]}"
@@ -115,6 +133,18 @@ for t in git curl notify-send; do
   have "$t" || die "missing after install: $t (install it manually, then re-run)"
 done
 have wtype || have ydotool || have xdotool || die "no text injector found (wtype/ydotool/xdotool)"
+if needs_ydotool; then
+  # ydotool types through its daemon, which needs /dev/uinput (distro packages
+  # grant it to the input group via a udev rule)
+  if systemctl --user cat ydotool.service >/dev/null 2>&1; then
+    systemctl --user enable --now ydotool.service >/dev/null 2>&1 \
+      && info "ydotoold started (user service ydotool.service)" \
+      || info "could not start ydotool.service — check: systemctl --user status ydotool"
+  else
+    info "start ydotoold for your user (your ydotool package ships no user service)"
+  fi
+  id -nG | grep -qw input || info "ydotoold needs the input group: sudo usermod -aG input \$USER, then log out and in"
+fi
 have pw-record || have arecord || die "no mic recorder found (pw-record/arecord)"
 have nvidia-smi || die "nvidia-smi not found — this package needs an NVIDIA GPU + driver"
 
@@ -223,6 +253,7 @@ mkdir -p "$HOME/.local/bin"
 { echo "#!$SERVER_DIR/.venv/bin/python"; tail -n +2 "$PKG_DIR/whisperless"; } \
   > "$HOME/.local/bin/whisperless"
 chmod +x "$HOME/.local/bin/whisperless"
+install -Dm644 "$PKG_DIR/whisperless_input.py" "$HOME/.local/lib/whisperless/whisperless_input.py"
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) info "note: $HOME/.local/bin is not in PATH" ;; esac
 
 # ------------------------------------------------------- S7 (Service)

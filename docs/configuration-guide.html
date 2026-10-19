@@ -219,7 +219,7 @@ chunks instead of one blob at the end.</p>
 <p class="when">When to change: try it if you dictate long stretches and want the on-screen
 text to feel more settled. Leave it off if you pause a lot mid-sentence (a pause would then
 cut your sentence in the live view — your final text is still re-checked at the end, but the
-live text may look jumpy).</p>
+live text may look jumpy). Turning it on also turns on <code class="inl">STREAMING</code>.</p>
 </div>
 
 <div class="card">
@@ -233,17 +233,23 @@ have fixed. <span class="badge rerun">re-run installer</span> to apply.</p>
 </div>
 
 <h2 id="typing"><span class="no">§</span>Typing &amp; timing</h2>
-<p class="section-note">Your finished text has to be "typed" into whatever app you're using,
-by pressing virtual keys. These settings control that last step.</p>
+<p class="section-note">Your finished text has to get into whatever app you're using. When the
+app supports it, it is handed over directly, the way a language input method (like a Chinese
+keyboard) does; otherwise it is "typed" by pressing virtual keys. These settings control that
+last step.</p>
 
 <div class="card">
 <h3><span class="code">TYPER</span> <span class="badge default">default auto</span> <span class="badge next">next dictation</span></h3>
-<p>Which helper program actually presses the virtual keys: <code class="inl">wtype</code>,
-<code class="inl">ydotool</code>, or <code class="inl">xdotool</code>. They do the same job on
-different desktop systems; <code class="inl">auto</code> picks the right one for yours and
-falls back to the next if one fails.</p>
-<p class="when">When to change: almost never. Pin one only if you have a specific reason — for
-example, a program that ignores one helper's keypresses but accepts another's.</p>
+<p>How the text gets in. <code class="inl">ime</code> hands it over as an input method: no keys
+are pressed, so a key you're still holding can't interfere (CTRL+M is Enter, which would send a
+half-finished message). It works on Hyprland, sway and other wlroots desktops, in apps that
+support input methods (GTK, Qt, Chrome, most terminals). <code class="inl">wtype</code>,
+<code class="inl">ydotool</code> and <code class="inl">xdotool</code> press virtual keys instead;
+they first wait until you've let go of CTRL/SHIFT/ALT/SUPER. <code class="inl">auto</code> tries
+<code class="inl">ime</code> first and falls back to the key typers (on KDE and GNOME only
+<code class="inl">ydotool</code> can type, and only plain ASCII characters).</p>
+<p class="when">When to change: almost never. Pin one only if a specific program ignores one
+method but accepts another.</p>
 </div>
 
 <div class="card">
@@ -258,13 +264,25 @@ text appear marginally sooner.</p>
 </div>
 
 <div class="card">
-<h3><span class="code">GRACE_TAIL</span> <span class="badge default">default 0.25 seconds</span> <span class="badge next">next dictation</span></h3>
+<h3><span class="code">TYPE_DELAY</span> <span class="badge default">default 5 milliseconds</span> <span class="badge next">next dictation</span></h3>
+<p>The pause between virtual keystrokes when <code class="inl">wtype</code> types the text
+(only when the input method can't be used). With
+no pause the whole sentence arrives in one burst, and some programs drop letters from it.</p>
+<p class="when">When to change: if typed text is missing letters but the log's
+<code class="inl">typed via</code> line shows the full sentence, raise it
+(<code class="inl">10</code>). Each millisecond adds about 0.1 s per 100 characters.
+<code class="inl">ydotool</code> and <code class="inl">xdotool</code> ignore it (they already pace
+their keystrokes).</p>
+</div>
+
+<div class="card">
+<h3><span class="code">GRACE_TAIL</span> <span class="badge default">default 0.4 seconds</span> <span class="badge next">next dictation</span></h3>
 <p>After you press stop, the microphone keeps listening for this long and adds what it hears.
 Your mouth is often still finishing the last word as your finger hits the key — this catches
 it.</p>
-<p class="when">When to change: if the last word of every dictation gets cut off, raise it
-(<code class="inl">0.4</code>). If you sometimes get a stray breath or "mm" appended, lower it
-(<code class="inl">0.1</code>).</p>
+<p class="when">When to change: if the last word still gets cut off — especially when you stop
+speaking at the very moment you press the key — raise it (<code class="inl">0.5</code>). If you
+sometimes get a stray breath or "mm" appended, lower it (<code class="inl">0.2</code>).</p>
 </div>
 
 <div class="card">
@@ -422,6 +440,18 @@ likely. 1.0 means the leash is slack.</p>
 </div>
 
 <div class="card">
+<h3><span class="code">STREAMING</span> <span class="badge default">default off</span> <span class="badge next">next dictation</span></h3>
+<p>Off: the brain does nothing while you talk and listens to the whole recording once when you
+press stop (about half a second for 30 seconds of speech). On: it also transcribes every slice
+as you go, which keeps the graphics card busy the whole time. whisperless doesn't show that
+live text, so off loses nothing. <code class="inl">CHUNK_SIZE_MS</code>,
+<code class="inl">LOOKAHEAD_MS</code>, <code class="inl">UNFIX_TOKEN_NUM</code> and
+<code class="inl">ROLLBACK_PUNCTUATION</code> below only matter when it's on.</p>
+<p class="when">When to change: leave it off. <code class="inl">USE_VAD=1</code> turns it on by
+itself.</p>
+</div>
+
+<div class="card">
 <h3><span class="code">CHUNK_SIZE_MS</span> <span class="badge default">default 160</span> <span class="badge rerun">re-run installer</span></h3>
 <p>How often the brain looks at the microphone: every 160 milliseconds it processes the latest
 slice and updates the live text. Smaller = snappier live text but more work for the graphics
@@ -546,12 +576,13 @@ artifacts are stripped before typing). If you still see it, update via
 <td>Raise <code class="inl">MAX_SECS</code> (client-side) and, if memory allows,
 <code class="inl">MAX_MODEL_LEN</code> and <code class="inl">MAX_NEW_TOKENS</code>.</td></tr>
 <tr><td>Less GPU usage while the machine is busy</td>
-<td><code class="inl">CHUNK_SIZE_MS=320</code> — the live text just updates in bigger
-steps.</td></tr>
+<td>Keep <code class="inl">STREAMING=0</code> (the default): the GPU only works once, when you stop.</td></tr>
 <tr><td>Last word keeps getting cut off</td>
 <td>Raise <code class="inl">GRACE_TAIL</code> to 0.4.</td></tr>
 <tr><td>Text arrives with weird extra behavior when it appears</td>
 <td>Raise <code class="inl">SETTLE_DELAY</code> to 0.3 (the modifier-key "glue" issue).</td></tr>
+<tr><td>Text has missing letters or presses Enter early</td>
+<td>Check the log (<code class="inl">~/.cache/whisperless.log</code>) says <code class="inl">typed via ime</code>; if it says <code class="inl">wtype</code>, the app doesn't accept input methods: be in the <code class="inl">input</code> group and raise <code class="inl">TYPE_DELAY</code> to 10.</td></tr>
 <tr><td>Wrong microphone is recorded</td>
 <td>Find its id with <code class="inl">wpctl status</code> and set
 <code class="inl">MIC_TARGET</code>.</td></tr>

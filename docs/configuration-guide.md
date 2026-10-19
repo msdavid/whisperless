@@ -106,7 +106,7 @@ one blob at the end.
 *When to modify:* try it if you dictate long stretches and want the on-screen text to feel
 more settled. Leave it off if you pause a lot mid-sentence (a pause would then cut your
 sentence in the live view — your final text is still re-checked at the end, but the live text
-may look jumpy).
+may look jumpy). Turning it on also turns on `STREAMING`.
 
 ### `ROLLBACK_PUNCTUATION`
 **Default:** `0` (off) · **Applies:** re-run installer
@@ -120,18 +120,23 @@ revisions, at a small risk of locking in a mistake the model would otherwise hav
 
 ## Typing & timing
 
-Your finished text has to be "typed" into whatever app you're using, by pressing virtual keys.
-These settings control that last step.
+Your finished text has to get into whatever app you're using. When the app supports it, it is
+handed over directly, the way a language input method (like a Chinese keyboard) does; otherwise
+it is "typed" by pressing virtual keys. These settings control that last step.
 
 ### `TYPER`
 **Default:** `auto` · **Applies:** next dictation
 
-Which helper program actually presses the virtual keys: `wtype`, `ydotool`, or `xdotool`. They
-do the same job on different desktop systems; `auto` picks the right one for yours and falls
-back to the next if one fails.
+How the text gets in. `ime` hands it over as an input method: no keys are pressed, so a key
+you're still holding can't interfere (CTRL+M is Enter, which would send a half-finished
+message). It works on Hyprland, sway and other wlroots desktops, in apps that support input
+methods (GTK, Qt, Chrome, most terminals). `wtype`, `ydotool` and `xdotool` press virtual keys
+instead; they first wait until you've let go of CTRL/SHIFT/ALT/SUPER. `auto` tries `ime`
+first and falls back to the key typers (on KDE and GNOME only `ydotool` can type, and only
+plain ASCII characters).
 
-*When to modify:* almost never. Pin one only if a specific program ignores one helper's
-keypresses but accepts another's.
+*When to modify:* almost never. Pin one only if a specific program ignores one method but
+accepts another.
 
 ### `SETTLE_DELAY`
 **Default:** `0.15` seconds · **Applies:** next dictation
@@ -144,15 +149,27 @@ shortcuts.
 *When to modify:* only if you see stray behavior right when text appears (wrong menus opening,
 characters swallowed). Try `0.3`. Lower values make text appear marginally sooner.
 
+### `TYPE_DELAY`
+**Default:** `5` milliseconds · **Applies:** next dictation
+
+The pause between virtual keystrokes when `wtype` types the text (only when the input
+method can't be used). With no pause the whole
+sentence arrives in one burst, and some programs drop letters from it.
+
+*When to modify:* if typed text is missing letters but the log's `typed via` line shows the
+full sentence, raise it (`10`). Each millisecond adds about 0.1 s per 100 characters.
+`ydotool` and `xdotool` ignore it (they already pace their keystrokes).
+
 ### `GRACE_TAIL`
-**Default:** `0.25` seconds · **Applies:** next dictation
+**Default:** `0.4` seconds · **Applies:** next dictation
 
 After you press stop, the microphone keeps listening for this long and adds what it hears.
 Your mouth is often still finishing the last word as your finger hits the key — this catches
 it.
 
-*When to modify:* if the last word of every dictation gets cut off, raise it (`0.4`). If you
-sometimes get a stray breath or "mm" appended, lower it (`0.1`).
+*When to modify:* if the last word still gets cut off — especially when you stop speaking at
+the very moment you press the key — raise it (`0.5`). If you sometimes get a stray breath or
+"mm" appended, lower it (`0.2`).
 
 ### `TRAILING_SPACE`
 **Default:** `1` (on) · **Applies:** next dictation
@@ -315,6 +332,17 @@ leash is slack.
 nouns start coming out subtly wrong, go back to `1.0` — the leash can also suppress
 legitimately repeated words.
 
+### `STREAMING`
+**Default:** `0` (off) · **Applies:** next dictation
+
+Off: the brain does nothing while you talk and listens to the whole recording once when you
+press stop (about half a second for 30 seconds of speech). On: it also transcribes every
+slice as you go, which keeps the graphics card busy the whole time. whisperless doesn't show
+that live text, so off loses nothing. `CHUNK_SIZE_MS`, `LOOKAHEAD_MS`, `UNFIX_TOKEN_NUM` and
+`ROLLBACK_PUNCTUATION` below only matter when it's on.
+
+*When to modify:* leave it off. `USE_VAD=1` turns it on by itself.
+
 ### `CHUNK_SIZE_MS`
 **Default:** `160` · **Applies:** re-run installer
 
@@ -434,9 +462,10 @@ workloads often grab card 0 first).
 | Stop accidental "send" in chat apps | Already fixed in the current version (stray Enter and `\|` artifacts are stripped before typing). If you still see it, update via `./install.sh`. |
 | Free up graphics memory for games | Lower `GPU_MEM_UTIL` (e.g. 0.45), or `MAX_MODEL_LEN=4096`, or both. Re-run the installer. |
 | Room for very long dictations | Raise `MAX_SECS` (client-side) and, if memory allows, `MAX_MODEL_LEN` and `MAX_NEW_TOKENS`. |
-| Less GPU usage while the machine is busy | `CHUNK_SIZE_MS=320` — the live text just updates in bigger steps. |
+| Less GPU usage while the machine is busy | Keep `STREAMING=0` (the default): the GPU only works once, when you stop. |
 | Last word keeps getting cut off | Raise `GRACE_TAIL` to 0.4. |
 | Text arrives with weird extra behavior when it appears | Raise `SETTLE_DELAY` to 0.3 (the modifier-key "glue" issue). |
+| Text has missing letters or presses Enter early | Check the log (`~/.cache/whisperless.log`) says `typed via ime`; if it says `wtype`, the app doesn't accept input methods: be in the `input` group and raise `TYPE_DELAY` to 10. |
 | Wrong microphone is recorded | Find its id with `wpctl status` and set `MIC_TARGET`. |
 | See if you're being recorded from across the room | Keep `BORDER=1`; recolor with `BORDER_COLOR`. |
 

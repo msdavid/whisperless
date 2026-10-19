@@ -6,6 +6,8 @@ versions are semver-ish (major.minor.patch).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-19
+
 ### Added
 - Configurable ASR engine knobs (server-side, rendered into the systemd unit
   by `install.sh`): `CHUNK_SIZE_MS`, `LOOKAHEAD_MS`, `UNFIX_TOKEN_NUM`,
@@ -20,7 +22,36 @@ versions are semver-ish (major.minor.patch).
   `playerctl`) pauses while recording and resumes afterwards; players that were
   already paused are left alone. Skipped silently without `playerctl`.
 
+- Text is now inserted as a Wayland input method (`TYPER=ime`, first in the `auto`
+  chain): the focused app receives one committed string instead of synthesized
+  keypresses. Works on compositors with `zwp_input_method_v2` (wlroots-based ones such
+  as sway, and Hyprland) in apps with `text-input-v3`; everything else falls back to
+  the key typers.
+- Key typers now wait until no modifier key is held (read from `/dev/input`, needs
+  the `input` group) before typing.
+- `STREAMING` (default 0): the server collects audio and decodes once at stop instead
+  of decoding every 160 ms while you talk. `STREAMING=1` (or `USE_VAD=1`) restores
+  the live decode.
+- `TYPE_DELAY` (default 5 ms): pause between `wtype` keystrokes when wtype is used.
+- Installer picks the key typer by session: `ydotool` on KDE/GNOME Wayland (where
+  `wtype` can't type) and starts its `ydotool.service` user daemon, `xdotool` on X11,
+  `wtype` elsewhere. The client helpers moved to `whisperless_input.py`, installed to
+  `~/.local/lib/whisperless/` (AUR: `/usr/lib/whisperless/`).
+
+### Changed
+- `GRACE_TAIL` default raised from 0.25 to 0.4 seconds: stopping the dictation at the
+  very moment speech ends could still chop the last words; the longer post-stop capture
+  covers them (both in the packaged default and on installed configs).
+
 ### Fixed
+- `ydotool type` read dictated text starting with `-` as an option; it now gets `--`.
+- Enter pressed in the middle of a dictation, and letters missing from it: keys typed
+  while CTRL was still held (from the hotkey) arrived as shortcuts (CTRL+M is Enter).
+  Fixed by the input-method inserter and the modifier wait above.
+- The last word (sometimes the end of the sentence) was dropped when a dictation
+  stopped right as speech ended: the model loses the final word when the audio
+  ends within ~0.3s of it. The server's final decode now includes the last
+  partial audio chunk and appends 0.6s of silence.
 - Worker errors crashed with `NameError` (`traceback` not imported), so the
   "whisperless failed" notification and the logged traceback never appeared.
 - Final transcript could carry R2T2 structural markers from the offline

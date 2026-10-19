@@ -67,8 +67,10 @@ The evidence behind that claim, from their benchmarks at 160 ms chunks:
   Context/hotword prompts are natively supported.
 
 One architectural note: whisperless does **not** rely on R2T2's streaming output — the
-text you receive is a full offline decode of the utterance. Streaming lets the server
-process audio as you talk; the deliverable is offline-grade.
+text you receive is a full offline decode of the utterance. By default (`STREAMING=0`)
+the server only collects audio while you talk and decodes it once when you stop
+(~0.5s for 30s of speech); `STREAMING=1` restores the live decode, which only
+`USE_VAD` needs.
 
 Caveats worth knowing: the weights are under NetEase's license, not an OSI one
 ([License](#license)); benchmark numbers above are upstream-reported. In our own
@@ -82,21 +84,26 @@ whisper-style models routinely mangle — that alone settled the model choice
 whisperless.service (systemd user, always warm)     ~/.local/bin/whisperless
   Confucius4-R2T2 ws_server.py               pw-record 16 kHz s16 → WS frames →
   vLLM on your GPU, ~8-9GB VRAM              ws://127.0.0.1:8272/asr_stream_api_v1
-  boots in ~2 min, latency ~0.5s/chunk       → collects incremental text → wtype
+  boots in ~2 min, ~0.5s final decode        → final text → input method (or wtype)
 ```
 
 Two moving parts: their **server** (unmodified except the patches below, kept warm
 by systemd so dictation starts instantly) and a small **Python client** that captures
 the mic (`pw-record`, or `arecord` on non-PipeWire systems), streams it to the server
-over a WebSocket, and types the final transcript (`wtype` on Wayland, `ydotool`/
-`xdotool` fallbacks — see "Window manager support"). At stop, the server re-decodes
-the whole utterance offline.
+over a WebSocket, and inserts the final transcript into the focused app (see
+"Text injection chain" below). At stop, the server decodes the whole utterance
+offline.
 
 ## Requirements
 
 - Linux with a Wayland compositor or X11 session, systemd user session
-- Text injector: `wtype` (Wayland) or `ydotool` or `xdotool` (X11) — at least one;
-  the installer installs `wtype` if none is present
+- Text injector: `wtype` (Wayland) or `ydotool` or `xdotool` (X11) — at least one.
+  The installer picks by session: `ydotool` on KDE/GNOME Wayland (and starts its
+  `ydotool.service` user daemon; ydotoold needs the `input` group), `xdotool` on X11,
+  `wtype` elsewhere. On compositors with the
+  input-method protocol the built-in inserter is used first and needs nothing.
+- Membership in the `input` group (most desktops grant it) lets the key typers wait
+  until your hotkey's modifiers are released; without it they type immediately
 - Mic capture: PipeWire (`pw-record`) or ALSA (`arecord`)
 - Optional: `playerctl`, to pause playing media while recording (`PAUSE_MEDIA=1`)
 - NVIDIA GPU: ~7GB VRAM measured floor (`GPU_MEM_UTIL=0.42`); the default config
@@ -107,7 +114,7 @@ the whole utterance offline.
 
 ## Install
 
-Arch Linux: download [`whisperless-0.1.0-1-any.pkg.tar.zst`](https://github.com/msdavid/whisperless/releases/tag/v0.1.0)
+Arch Linux: download [`whisperless-0.2.0-1-any.pkg.tar.zst`](https://github.com/msdavid/whisperless/releases/tag/v0.2.0)
 from Releases and `sudo pacman -U` it (client + user service unit; the GPU server itself is set up
 by the installer step below). An AUR submission is prepared in [aur/](aur/) pending AUR account availability.
 
@@ -158,11 +165,12 @@ HOTKEY="CTRL + space"      # keybind (lua syntax; converted automatically for sw
 VOICE_LANG=English         # English | Chinese | zhen (auto zh+en) | other supported languages
 MAX_SECS=120               # auto-finalize dictation after N seconds
 SETTLE_DELAY=0.15          # pause before typing; prevents WM shortcut races
+TYPE_DELAY=5               # ms between wtype keystrokes (wtype fallback only)
 GRACE_TAIL=0.25            # extra capture after stop so the last word isn't clipped
 TRAILING_SPACE=1           # append a space after inserted text
 NOTIFY=1                   # desktop notifications (0 = silent)
 MIC_TARGET=                # pw-record --target; empty = default source (wpctl status)
-TYPER=auto                 # text injection: auto | wtype | ydotool | xdotool
+TYPER=auto                 # text injection: auto | ime | wtype | ydotool | xdotool
 WM=auto                    # bind target: auto | hyprland | sway | i3 | other
 BORDER=1                   # Hyprland: focused-window border turns red while recording
 BORDER_COLOR="rgba(ff3333ff)"          # active border while recording
@@ -198,9 +206,29 @@ Detection order: `WM=` config override → `hyprctl`/`swaymsg`/`i3-msg` presence
 
 **Text injection chain** (client, first that succeeds wins — `TYPER=` pins one):
 
-- Wayland session: `wtype` → `ydotool` (needs a running `ydotoold` daemon)
+- Wayland session: `ime` → `wtype` → `ydotool` (needs a running `ydotoold` daemon)
 - X11 session: `ydotool` → `xdotool` (`--clearmodifiers`, which also guards
   against stuck modifiers on X11)
+
+`ime` hands the text to the focused field as one string through the Wayland
+input-method protocol (`zwp_input_method_v2`), like an IME would, so a modifier
+you're still holding can't turn letters into shortcuts (CTRL+M is Enter) and no
+keystrokes get dropped. It needs the compositor to offer the protocol and the app to
+support text input (`text-input-v3`); otherwise it steps aside in ~0.3s:
+
+| Desktop | `ime` | Key typer that works |
+|---|---|---|
+| wlroots compositors (sway, river, labwc, …), Hyprland | yes — GTK, Qt, Chrome/Chromium, kitty and most terminals | `wtype` |
+| KDE Plasma, GNOME | no (no input-method-v2 protocol) | `ydotool` only |
+| X11 | no | `xdotool` / `ydotool` |
+
+Tested in kitty, GTK4 and Chrome on Hyprland, including real speech through the
+hotkey toggle with CTRL physically held while the text went in, and in GTK4 on sway.
+KDE and GNOME: in a GTK4 app inside a nested KWin and inside GNOME's mutter 51 (devkit
+window), `ime` and `wtype` stepped aside and `ydotool` typed the exact text, also with
+CTRL held.
+`ydotool` types US-layout keycodes, so it can't enter characters outside ASCII. Before a key typer runs, the client waits (≤2s) until
+no modifier key is held on any keyboard (reads `/dev/input`, needs the `input` group).
 
 **Mic capture chain:** `pw-record` (PipeWire) → `arecord` (ALSA). `MIC_TARGET`
 selects the PipeWire source; `MIC_TARGET=60`-style ids don't map to ALSA devices.
@@ -270,6 +298,11 @@ systemctl --user restart r2t2         # after changing server-side config or wei
   manually.
 - **Shortcut keys firing while typing** → the `SETTLE_DELAY` guard; increase it.
 - **Last word missing** → increase `GRACE_TAIL`.
+- **Enter pressed mid-sentence, or letters missing from typed text** (the log's
+  `typed via` line is complete) → a key typer ran while a modifier was held, or the
+  app dropped keystrokes. If the log says `typed via wtype`, the focused app doesn't
+  accept the input method: check you're in the `input` group (`id -nG`) so the
+  modifier wait works, and raise `TYPE_DELAY`.
 - **Terminal punctuation missing** → make sure you're running the patched server
   (`./install.sh` re-applies it); plain upstream streaming never emits it.
 - **Server won't start, KV cache error** → lower `GPU_MEM_UTIL` *and* `MAX_MODEL_LEN`,
@@ -302,7 +335,11 @@ over the clone. Applied changes (also marked `# patched` inline):
    append-only design; upstream's own `example.py` behaves the same). At EOS the
    endpoint re-decodes the full utterance offline via `transcribe()` and returns the
    complete punctuated transcript as the final `reset:True` message (falls back to
-   the streaming finish on error).
+   the streaming finish on error). The re-decode gets the whole utterance plus
+   0.6s of appended silence: R2T2 drops the entire last word when the audio ends
+   within ~0.3s of it, which is exactly what stopping a dictation does. A header
+   `streaming: false` (sent by default) skips the per-chunk decode entirely: the
+   endpoint only collects audio until EOS.
 3. **Unit environment** — `PYTHONUNBUFFERED=1` (their debug prints are otherwise
    swallowed by journal buffering).
 4. **Finalize sanitization** — the offline re-decode emits R2T2 structural

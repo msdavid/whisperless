@@ -11,8 +11,14 @@ whisperless.conf in the package for the documented defaults).
 
 Protocol (Confucius4-R2T2 ws_server, /asr_stream_api_v1):
   JSON header -> raw int16 PCM binary frames -> "YOUDAO_ONETIME_ASR_STREAM_EOS".
-  Incremental replies carry new text; the final reset:true reply carries the
-  full offline transcript and REPLACES the streamed accumulation.
+  With header streaming:false (default, STREAMING=0) the server only collects
+  audio and replies once at EOS; with streaming:true incremental replies carry
+  new text. Either way the final reset:true reply carries the full offline
+  transcript and REPLACES anything streamed.
+
+Text insertion: on Wayland as an input method (zwp_input_method_v2, no
+synthesized keys) when the focused app supports text-input-v3; otherwise a key
+typer (wtype / ydotool / xdotool) after every modifier key is released.
 """
 import asyncio
 import json
@@ -27,6 +33,11 @@ import traceback
 import uuid
 import wave
 from pathlib import Path
+
+# text-insertion helpers: next to this script (repo checkout), or where the
+# installer (~/.local/lib) or a distro package (/usr/lib) puts them
+sys.path[1:1] = [str(Path.home() / ".local/lib/whisperless"), "/usr/lib/whisperless"]
+from whisperless_input import ime_commit, wait_modifiers_released  # noqa: E402
 
 EOS = "YOUDAO_ONETIME_ASR_STREAM_EOS"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
@@ -73,13 +84,15 @@ MAX_SECS = int(CFG.get("MAX_SECS", "120"))       # hard stop: auto-finalize afte
 LANG_HINT = CFG.get("VOICE_LANG", "English")     # header language hint; "zhen" = auto zh+en
 CONTEXT = CFG.get("CONTEXT", "")                 # hotword/topic hint -> ASR system prompt (bias recognition)
 USE_VAD = CFG.get("USE_VAD", "0") == "1"         # server emits mid-stream segment finals on speech end
+STREAMING = CFG.get("STREAMING", "0") == "1" or USE_VAD  # live decode while speaking (VAD needs it)
 SMOOTH = CFG.get("SMOOTH", "0") == "1"           # ask the model to smooth/normalize the text
 SETTLE = float(CFG.get("SETTLE_DELAY", "0.15"))  # pause before typing (WM modifier race)
+TYPE_DELAY = int(CFG.get("TYPE_DELAY", "5"))     # ms between wtype keystrokes (bursts drop keys)
 GRACE = float(CFG.get("GRACE_TAIL", "0.25"))     # extra capture after stop (last word)
 TRAILING_SPACE = CFG.get("TRAILING_SPACE", "1") == "1"
 NOTIFY_ON = CFG.get("NOTIFY", "1") == "1"
 MIC_TARGET = CFG.get("MIC_TARGET", "")
-TYPER = CFG.get("TYPER", "auto")   # auto | wtype | ydotool | xdotool
+TYPER = CFG.get("TYPER", "auto")   # auto | ime | wtype | ydotool | xdotool
 BORDER_ON = CFG.get("BORDER", "1") == "1"   # focused-window border turns red while recording (Hyprland)
 BORDER_ACTIVE = CFG.get("BORDER_COLOR", "rgba(ff3333ff)")
 BORDER_INACTIVE = CFG.get("BORDER_INACTIVE_COLOR", "rgba(ff333355)")
@@ -96,11 +109,13 @@ def _have(bin_name):
 
 def typer_chain():
     """Text-injection backends in priority order (first that works wins)."""
+    def usable(t):
+        return t == "ime" or _have(t)  # ime is built in
     if TYPER != "auto":
-        return [TYPER] if _have(TYPER) else []
+        return [TYPER] if usable(TYPER) else []
     wayland = bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("SWAYSOCK"))
-    cands = ["wtype", "ydotool"] if wayland else ["ydotool", "xdotool"]
-    return [c for c in cands if _have(c)]
+    cands = ["ime", "wtype", "ydotool"] if wayland else ["ydotool", "xdotool"]
+    return [c for c in cands if usable(c)]
 
 def log(msg):
     try:
@@ -139,6 +154,7 @@ def header():
         "requestId": str(uuid.uuid4()),
         "language": LANG_HINT,
         "use_vad": USE_VAD,
+        "streaming": STREAMING,  # patched server: False = decode once at EOS
         "smooth": SMOOTH,
         "system_prompt": CONTEXT,
         "secret_key": "test0102",
@@ -282,10 +298,18 @@ def type_text(text):
     typed = None
     for typer in typer_chain():
         insert = text + (" " if TRAILING_SPACE else "")
+        if typer == "ime":
+            if ime_commit(insert):
+                typed = typer
+                break
+            log("typer ime unavailable for the focused window")
+            continue
+        if not wait_modifiers_released():
+            log("modifier still held; typing anyway")
         if typer == "wtype":
-            r = subprocess.run(["wtype", insert], check=False)
+            r = subprocess.run(["wtype", "-d", str(TYPE_DELAY), "--", insert], check=False)
         elif typer == "ydotool":
-            r = subprocess.run(["ydotool", "type", insert], check=False)
+            r = subprocess.run(["ydotool", "type", "--", insert], check=False)
         else:
             r = subprocess.run(["xdotool", "type", "--clearmodifiers", insert], check=False)
         if r.returncode == 0:

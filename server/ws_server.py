@@ -217,6 +217,10 @@ LOOKAHEAD_MS = int(os.environ.get("LOOKAHEAD_MS", "160"))  # patched: config-dri
 UNFIX_TOKEN_NUM = int(os.environ.get("UNFIX_TOKEN_NUM", "1"))  # patched: config-driven
 ROLLBACK_PUNCTUATION = os.environ.get("ROLLBACK_PUNCTUATION", "0") == "1"  # patched: config-driven streaming prefix lock
 MAX_TOKENS=10
+# patched: silence appended to the offline finalize audio. R2T2 drops the whole last
+# word when the audio ends within ~0.3s of it (measured: 0-0.2s trailing -> word lost,
+# >=0.3s -> kept); dictation is stopped right as speech ends, so pad it.
+FINAL_PAD_SAMPLES = int(0.6 * SAMPLING_RATE)
 
 ERROR_MSG_NO_HEADER = "json header is expected"
 ERROR_MSG_INVALID_HEADER = "invalid json header"
@@ -959,6 +963,9 @@ async def asr_stream_api_v1(request: Request, ws: Websocket):
             )
 
             use_vad = header.get("use_vad", False)
+            # patched: streaming=False (batch) skips the per-chunk decode; audio is only
+            # accumulated and decoded once at EOS. Default True keeps upstream behavior.
+            streaming = bool(header.get("streaming", True)) or use_vad
             language = header.get("language", "zhen")
             if language == "zhen":
                 language = None
@@ -1045,8 +1052,14 @@ async def asr_stream_api_v1(request: Request, ws: Websocket):
                         # design), while transcribe() on the same engine does; dictation wants it.
                         _final_full = ""
                         try:
+                            # patched: include the <1-chunk remainder the streaming loop never
+                            # consumed, then trailing silence so the last word is decoded
+                            _final_pcm = np.concatenate(full_pcm_list + [
+                                audio_buf[tmp_audio_pointer:],
+                                np.zeros(FINAL_PAD_SAMPLES, dtype=np.float32),
+                            ])
                             _res = asr_model.transcribe(
-                                audio=[(np.concatenate(full_pcm_list), SAMPLING_RATE)],
+                                audio=[(_final_pcm, SAMPLING_RATE)],
                                 language=[language if language else None],
                                 context=context,  # patched: bias the offline finalize like the stream
                                 return_time_stamps=False,
@@ -1054,7 +1067,8 @@ async def asr_stream_api_v1(request: Request, ws: Websocket):
                             _final_full = _res[0].text.strip() if _res else ""
                         except Exception:
                             _logger.exception(f"requestId={requestId}: offline finalize failed; falling back to streaming finish")
-                        if _final_full:
+                        # patched: batch mode streamed nothing, so it has no fallback
+                        if _final_full or not streaming:
                             text = sanitize_offline_text(_final_full)
                             out_msg = {"text": text, "reset": True}
                         else:
@@ -1082,6 +1096,11 @@ async def asr_stream_api_v1(request: Request, ws: Websocket):
                     audio_seg = read_pcm(data, is_wav)
                 else:
                     audio_seg = read_pcm(data)
+
+                if not streaming:  # patched: batch mode — keep the audio, decode at EOS
+                    full_pcm_list.append(audio_seg)
+                    is_first_seg = False
+                    continue
 
                 # Used to quickly test network latency
                 if debug_network:

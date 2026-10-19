@@ -30,7 +30,12 @@ Modifications (also marked with `# patched` inline):
     detect_chunk and ignored the result), and streaming calls pass
     rollback_punctuation explicitly (upstream passed nmt_fast positionally
     into that parameter).
-  * Full-utterance PCM accumulation (full_pcm_list) for the offline finalize.
+  * Full-utterance PCM accumulation (full_pcm_list) for the offline finalize,
+    including the final sub-chunk remainder, padded with 0.6s of silence
+    (the model drops the last word when audio ends right after it).
+  * Batch mode: a "streaming": false header field skips the per-chunk decode
+    and only accumulates audio for the EOS finalize (default true = upstream
+    behavior; use_vad forces streaming).
 
 These changes are provided under the Apache-2.0 license, consistent with the
 upstream project. The rest of whisperless is MIT-licensed (see the repository

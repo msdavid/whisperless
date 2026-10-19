@@ -15,6 +15,7 @@ systemctl --user daemon-reload
 
 step "Removing client"
 rm -f "$HOME/.local/bin/whisperless"
+rm -rf "$HOME/.local/lib/whisperless"
 
 step "Removing hotkey bind"
 for f in "$HOME/.config/hypr/hyprland.lua" "$HOME/.config/hypr/hyprland.conf"; do

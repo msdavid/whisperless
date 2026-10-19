@@ -1,15 +1,15 @@
 # Maintainer: Mauro <mauro@sauco.net>
 pkgname=whisperless
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Push-to-talk voice dictation for Linux desktops - local R2T2 ASR on your NVIDIA GPU"
 arch=('any')
 url="https://github.com/msdavid/whisperless"
 license=('MIT' 'Apache')
 depends=('python' 'python-websockets' 'libnotify')
-optdepends=('wtype: text injection on Wayland (recommended)'
-            'ydotool: text injection via uinput (needs ydotoold daemon)'
-            'xdotool: text injection on X11'
+optdepends=('wtype: key-typing fallback on Wayland for apps without input-method support (recommended)'
+            'ydotool: key typing via uinput, the only typer on KDE/GNOME (needs ydotoold daemon)'
+            'xdotool: key typing on X11'
             'pipewire: mic capture via pw-record (recommended)'
             'alsa-utils: mic capture fallback (arecord)'
             'playerctl: pause playing media while recording (PAUSE_MEDIA)')
@@ -27,6 +27,7 @@ package() {
   # client (system python)
   install -Dm755 whisperless "$pkgdir/usr/bin/whisperless"
   sed -i '1s|^.*$|#!/usr/bin/python3|' "$pkgdir/usr/bin/whisperless"
+  install -Dm644 whisperless_input.py "$pkgdir/usr/lib/whisperless/whisperless_input.py"
 
   # user service unit, rendered for the default server layout
   install -d "$pkgdir/usr/lib/systemd/user"
