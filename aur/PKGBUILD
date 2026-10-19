@@ -14,7 +14,7 @@ optdepends=('wtype: key-typing fallback on Wayland for apps without input-method
             'alsa-utils: mic capture fallback (arecord)'
             'playerctl: pause playing media while recording (PAUSE_MEDIA)')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('5e3c354482461e4210ecb9704b60559b1f03f62570a5fed083d8d6212ebc4347')
+sha256sums=('96db1de24998421a36605715a6fdde22e828369386557d0692fbeeef19091db3')
 
 # NOTE: this package ships the client + user service unit + docs only.
 # The ASR server (R2T2 checkout, venv, ~4GB model) is not packaged; set it up
